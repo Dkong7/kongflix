@@ -1,0 +1,4 @@
+cache/
+*.mp4
+node_modules/
+proxy/credentials.json

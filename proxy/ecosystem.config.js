@@ -1,0 +1,1 @@
+module.exports = { apps: [{ name: "kongflix-proxy", cwd: "/root/projects/kongflix/proxy", script: "venv/bin/gunicorn", args: "-k gthread --threads 10 --timeout 7200 -b 127.0.0.1:3010 app:app", interpreter: "none", autorestart: true, max_restarts: 10, env: { PYTHONUNBUFFERED: "1" } }] };
