@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { FaTimes, FaTerminal, FaPlay, FaDatabase, FaExternalLinkAlt } from 'react-icons/fa';
 import { useWatchProgress } from '../hooks/useWatchProgress';
+import ShareButton from './ShareButton';
 
 // ─── MOTOR DE REPRODUCCIÓN (IFRAME FIRST) ──────────────
 function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markFinished }) {
@@ -8,10 +9,9 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
   const lastSavedTime = useRef(initialTime);
   const [useIframe, setUseIframe] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
 
   const driveId = episode.driveId;
-  const streamUrl = `https://drive.google.com/uc?export=download&id=${driveId}&confirm=t`;
-  const embedUrl  = `https://drive.google.com/file/d/${driveId}/preview?usp=sharing`;
   const viewUrl   = `https://drive.google.com/file/d/${driveId}/view`;
 
   // Reiniciar estado interno si cambias de episodio rápidamente
@@ -47,6 +47,7 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
     if (!videoRef.current) return;
     const current = videoRef.current.currentTime;
     lastSavedTime.current = current;
+    window._nervCurrentTime = Math.floor(current);
 
     // Guardado automático cada 10 segundos
     if (Math.floor(current) % 10 === 0 && current > 0) {
@@ -71,6 +72,23 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
     setTimeout(() => setIsSaving(false), 1000);
   };
 
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  const copyUrl = (withTime = false) => {
+    const url = new URL(window.location.origin + window.location.pathname);
+    url.searchParams.set('id', episode.id);
+    if (withTime && window._nervCurrentTime) {
+      url.searchParams.set('t', window._nervCurrentTime);
+    }
+    navigator.clipboard.writeText(url.toString());
+    closeContextMenu();
+  };
+
   useEffect(() => {
     return () => {
       if (lastSavedTime.current > 0 && !useIframe) {
@@ -82,8 +100,11 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
   if (!driveId) return <div className="text-[#c85a17] p-10 font-bold uppercase flex h-full items-center justify-center">NO_DRIVE_ID_FOUND</div>;
 
   return (
-    <div className="w-full h-full flex flex-col bg-black">
-      <div className="relative w-full flex-1 min-h-0 bg-black flex items-center justify-center">
+    <div className="w-full h-full flex flex-col bg-black" onClick={closeContextMenu}>
+      <div 
+        className="relative w-full flex-1 min-h-0 bg-black flex items-center justify-center group"
+        onContextMenu={handleContextMenu}
+      >
         {!useIframe ? (
           <video
             ref={videoRef}
@@ -94,13 +115,15 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
             preload="auto"
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
+            onEnded={() => syncProgressToDB(Math.floor(videoRef.current.currentTime), true)}
+            onContextMenu={(e) => { e.preventDefault(); handleContextMenu(e); }}
             onError={handleNetworkDrop}
             className="w-full h-full outline-none object-contain"
             style={{ filter: 'contrast(1.05)' }} 
           />
         ) : (
           <iframe
-            src={embedUrl}
+            src={`https://drive.google.com/file/d/${driveId}/preview?usp=sharing`}
             className="absolute inset-0 w-full h-full border-none"
             allow="autoplay; fullscreen"
             allowFullScreen
@@ -111,6 +134,26 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
         {!useIframe && (
           <div className="absolute top-4 left-4 z-10 pointer-events-none font-chakra text-[#d4b595] text-[10px] font-bold tracking-widest opacity-60 flex items-center gap-2">
             <span className="w-2 h-2 bg-[#c85a17] rounded-full animate-pulse"></span> DIRECT_LINK
+          </div>
+        )}
+
+        {contextMenu && (
+          <div 
+            className="fixed z-[9999] bg-[#29221c] border border-[#5c4a3d] shadow-[4px_4px_0_0_#1c1714] flex flex-col py-2 w-64"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+          >
+            <button 
+              onClick={(e) => { e.stopPropagation(); copyUrl(false); }}
+              className="text-left px-4 py-2 text-[11px] font-black uppercase text-[#d4b595] hover:bg-[#c85a17] hover:text-[#1c1714] transition-colors"
+            >
+              Copiar URL del episodio
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); copyUrl(true); }}
+              className="text-left px-4 py-2 text-[11px] font-black uppercase text-[#d4b595] hover:bg-[#c85a17] hover:text-[#1c1714] transition-colors"
+            >
+              Copiar URL en el momento actual
+            </button>
           </div>
         )}
       </div>
@@ -147,7 +190,7 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
 }
 
 // ─── MODAL PRINCIPAL ───────────────────────────────────────────────────────
-export default function SeriesModal({ seriesName, episodes, onClose }) {
+export default function SeriesModal({ seriesName, episodes, startEpId, onClose }) {
   const seasons = useMemo(() => {
     return episodes.reduce((acc, ep) => {
       const s = ep.season || 1;
@@ -158,19 +201,45 @@ export default function SeriesModal({ seriesName, episodes, onClose }) {
   }, [episodes]);
 
   const seasonNumbers = Object.keys(seasons).sort((a, b) => parseInt(a) - parseInt(b));
-  const [activeSeason, setActiveSeason] = useState(seasonNumbers[0]);
-  const [currentEp, setCurrentEp] = useState(seasons[activeSeason][0]);
+  
+  // Find initial episode based on startEpId or default to the first one
+  const initialEp = useMemo(() => {
+    if (startEpId) {
+      const found = episodes.find(e => e.id === startEpId);
+      if (found) return found;
+    }
+    return seasons[seasonNumbers[0]][0];
+  }, [episodes, startEpId, seasons, seasonNumbers]);
+
+  const [activeSeason, setActiveSeason] = useState(initialEp.season || seasonNumbers[0]);
+  const [currentEp, setCurrentEp] = useState(initialEp);
 
   // Hook de progreso para el episodio activo
   const { loadProgress, saveProgress, markFinished } = useWatchProgress('series', currentEp.id);
   const [resumeTime, setResumeTime] = useState(0);
   const [isReady, setIsReady] = useState(false);
 
+  // Update URL to match selected episode
+  useEffect(() => {
+    if (currentEp) {
+      const url = new URL(window.location);
+      url.searchParams.set('id', currentEp.id);
+      window.history.replaceState({ modal: true }, '', url.toString());
+    }
+  }, [currentEp]);
+
   // Al cambiar de episodio, cargar su progreso desde DB
   useEffect(() => {
     setIsReady(false);
+    
+    // URL override for initial time
+    const searchParams = new URLSearchParams(window.location.search);
+    const urlTime = parseInt(searchParams.get('t'), 10) || 0;
+
     loadProgress().then((rec) => {
-      if (rec && rec.progress) {
+      if (urlTime > 0) {
+        setResumeTime(urlTime);
+      } else if (rec && rec.progress) {
         setResumeTime(rec.progress);
       } else {
         setResumeTime(0);
@@ -232,7 +301,7 @@ export default function SeriesModal({ seriesName, episodes, onClose }) {
             </div>
 
             <p className="font-mono text-[10px] md:text-[11px] font-bold text-[#5c4a3d] uppercase tracking-widest mb-3 line-clamp-1">
-              {currentEp.name?.replace(/\.(mp4|mkv|avi|mov|webm)$/i, '') || '—'}
+              {currentEp.titleClean?.replace(/\.(mp4|mkv|avi|mov|webm)$/i, '') || currentEp.name?.replace(/\.(mp4|mkv|avi|mov|webm)$/i, '') || '—'}
             </p>
 
             <p className="text-xs md:text-[13px] leading-relaxed text-[#1c1714] border-l-2 border-[#d4b595] pl-3 italic line-clamp-4 md:line-clamp-none">
@@ -295,7 +364,7 @@ export default function SeriesModal({ seriesName, episodes, onClose }) {
                       EP {String(ep.episode).padStart(2,'0')}
                     </span>
                     <span className={`font-chakra text-[11px] md:text-xs truncate ${isActive ? 'font-bold text-[#1c1714]' : 'text-[#1c1714]'}`}>
-                      {ep.name?.replace(/\.(mp4|mkv|avi|mov|webm)$/i, '') || `Episodio ${ep.episode}`}
+                      {ep.titleClean?.replace(/\.(mp4|mkv|avi|mov|webm)$/i, '') || ep.name?.replace(/\.(mp4|mkv|avi|mov|webm)$/i, '') || `Episodio ${ep.episode}`}
                     </span>
                   </div>
                   {isActive && (
@@ -308,12 +377,18 @@ export default function SeriesModal({ seriesName, episodes, onClose }) {
         </div>
 
         {/* ── BOTÓN CERRAR (CAPA SUPERIOR ABSOLUTA) ── */}
-        <button
-          onClick={onClose}
-          className="absolute top-0 right-0 z-[999] bg-[#c85a17] text-white border-none md:border-l-2 md:border-b-2 border-[#1c1714] px-4 py-3 cursor-pointer transition-colors hover:bg-[#1c1714] shadow-md"
-        >
-          <FaTimes size={18} />
-        </button>
+        <div className="absolute top-0 right-0 z-[999] flex gap-0">
+          <ShareButton 
+            urlToShare={`${window.location.origin}${window.location.pathname}?id=${currentEp.id}&t=${window._nervCurrentTime || 0}`}
+            className="border-none md:border-l-2 md:border-b-2 border-[#1c1714] bg-[#29221c] px-4 py-3 h-[42px]"
+          />
+          <button
+            onClick={onClose}
+            className="bg-[#c85a17] text-white border-none md:border-l-2 md:border-b-2 border-[#1c1714] px-4 py-3 cursor-pointer transition-colors hover:bg-[#1c1714] shadow-md h-[42px] flex items-center justify-center"
+          >
+            <FaTimes size={18} />
+          </button>
+        </div>
 
       </div>
     </div>

@@ -3,7 +3,7 @@ import videojs from 'video.js';
 import 'video.js/dist/video-js.css';
 import { pb } from '../services/pb';
 
-export default function VideoPlayer({ src, mediaId, initialTime = 0 }) {
+export default function VideoPlayer({ src, mediaId, initialTime = 0, disableTracking = false, transcriptionEs = '', transcriptionEn = '' }) {
   const placeholderRef = useRef(null);
   const playerRef = useRef(null);
 
@@ -11,7 +11,7 @@ export default function VideoPlayer({ src, mediaId, initialTime = 0 }) {
   const saveProgress = useCallback(async (seconds) => {
     try {
       const userId = pb.authStore.model?.id;
-      if (!userId || !mediaId || !seconds || seconds < 3) return;
+      if (disableTracking || !userId || !mediaId || !seconds || seconds < 3) return;
 
       const existing = await pb.collection('watch_history').getList(1, 1, {
         filter: `user="${userId}" && media_id="${mediaId}"`,
@@ -64,6 +64,13 @@ export default function VideoPlayer({ src, mediaId, initialTime = 0 }) {
       sources: [{ src: finalStreamUrl, type: 'video/mp4' }], // <-- URL INYECTADA
       playbackRates: [0.5, 1, 1.25, 1.5, 2],
       userActions: { hotkeys: true },
+      html5: {
+        vhs: {
+          overrideNative: true
+        },
+        nativeAudioTracks: false,
+        nativeVideoTracks: false
+      },
       controlBar: {
         children: [
           'playToggle',
@@ -73,13 +80,41 @@ export default function VideoPlayer({ src, mediaId, initialTime = 0 }) {
           'durationDisplay',
           'progressControl',
           'playbackRateMenuButton',
+          'subsCapsButton',
+          'pictureInPictureToggle',
           'fullscreenToggle',
         ],
+        volumePanel: { inline: true },
       },
     }));
 
     player.on('loadedmetadata', () => {
       if (initialTime > 0) player.currentTime(initialTime);
+      
+      // Inject subtitles if available
+      if (transcriptionEs && transcriptionEs.includes('WEBVTT')) {
+        const blobEs = new Blob([transcriptionEs], { type: 'text/vtt' });
+        const urlEs = URL.createObjectURL(blobEs);
+        player.addRemoteTextTrack({
+          kind: 'captions',
+          srclang: 'es',
+          label: 'Español',
+          src: urlEs,
+          default: true
+        }, false);
+      }
+      
+      if (transcriptionEn && transcriptionEn.includes('WEBVTT')) {
+        const blobEn = new Blob([transcriptionEn], { type: 'text/vtt' });
+        const urlEn = URL.createObjectURL(blobEn);
+        player.addRemoteTextTrack({
+          kind: 'captions',
+          srclang: 'en',
+          label: 'English',
+          src: urlEn,
+          default: false
+        }, false);
+      }
     });
 
     // Guardar cada 5 segundos (throttled por módulo)
@@ -99,22 +134,47 @@ export default function VideoPlayer({ src, mediaId, initialTime = 0 }) {
     };
   }, [src, initialTime, saveProgress]);
 
+  const togglePiP = () => {
+    try {
+      const video = placeholderRef.current?.querySelector('video');
+      if (!video) return;
+      if (document.pictureInPictureElement) {
+        document.exitPictureInPicture();
+      } else {
+        video.requestPictureInPicture();
+      }
+    } catch (e) {
+      console.error('PiP Error:', e);
+    }
+  };
+
+  const skip = (sec) => {
+    if (playerRef.current) {
+      const t = playerRef.current.currentTime();
+      playerRef.current.currentTime(t + sec);
+    }
+  };
+
   return (
-    <div className="vhs-overlay border-2 border-[#5c4a3d] relative group shadow-brutal-purple bg-black w-full h-full flex items-center justify-center">
+    <div className="relative group bg-black w-full h-full flex items-center justify-center overflow-hidden">
       {/* Contenedor seguro — Video.js inyecta aquí sin tocar el DOM de React */}
       <div ref={placeholderRef} className="w-full h-full" />
 
-      {/* HUD Overlay */}
-      <div className="absolute top-4 left-6 z-10 pointer-events-none font-chakra text-[#d4b595] text-xs font-bold tracking-widest opacity-60 group-hover:opacity-100 transition-opacity">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 bg-[#c85a17] rounded-full animate-pulse" />
-          <span>NERV_STREAM</span>
-        </div>
-        <div className="mt-1 font-mono text-[10px] text-[#c85a17]">CH_01 // LIVE</div>
+      {/* Custom Controls Overlay - Solo visible en hover */}
+      <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 flex justify-between px-10 z-20 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+        <button onClick={() => skip(-10)} className="pointer-events-auto bg-black/60 hover:bg-[#c85a17]/80 text-white rounded-full p-4 border-2 border-[#d4b595]/50 transition-colors backdrop-blur-sm cursor-pointer" title="Retroceder 10s">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/></svg>
+        </button>
+        <button onClick={() => skip(10)} className="pointer-events-auto bg-black/60 hover:bg-[#c85a17]/80 text-white rounded-full p-4 border-2 border-[#d4b595]/50 transition-colors backdrop-blur-sm cursor-pointer" title="Adelantar 10s">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 17l5-5-5-5"/><path d="M6 17l5-5-5-5"/></svg>
+        </button>
       </div>
 
-      <div className="absolute bottom-14 right-6 z-10 pointer-events-none font-mono text-[9px] text-[#d4b595]/40 uppercase tracking-tighter">
-        SYNC_LINK_ESTABLISHED
+      <div className="absolute top-4 right-6 z-20 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+        <button onClick={togglePiP} className="pointer-events-auto bg-black/60 hover:bg-[#c85a17] text-white rounded p-2 border border-[#d4b595]/50 transition-colors backdrop-blur-sm cursor-pointer flex items-center gap-2 text-xs font-mono" title="Pantalla Flotante (PiP)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><rect x="12" y="11" width="7" height="8" rx="1" ry="1"/></svg>
+          PANTALLA FLOTANTE
+        </button>
       </div>
 
       <style>{`
@@ -134,6 +194,15 @@ export default function VideoPlayer({ src, mediaId, initialTime = 0 }) {
         .vjs-theme-nerv .vjs-time-control { color: #d4b595; }
         .vjs-theme-nerv .vjs-volume-bar.vjs-slider-bar { background: rgba(200,90,23,0.3); }
         .vjs-theme-nerv .vjs-volume-level { background: #c85a17; }
+        /* Fix captions text styling */
+        .video-js .vjs-text-track-display > div > div > div {
+          background-color: rgba(0, 0, 0, 0.75) !important;
+          color: white !important;
+          font-family: 'Outfit', sans-serif !important;
+          font-size: 1.2rem !important;
+          border-radius: 4px;
+          padding: 2px 8px !important;
+        }
       `}</style>
     </div>
   );

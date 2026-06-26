@@ -127,7 +127,7 @@ export default function Music() {
   /* ── LOAD ── */
   useEffect(() => {
     pb.collection('music_records').getFullList({
-      fields: 'id,title,artist,category,album,coverId,section,driveId,trackNum',
+      fields: 'id,title,artist,category,album,coverId,section,driveId,trackNum,folderDriveId',
       requestKey: null,
     }).then(res => { setAllRecords(res); setLoading(false); })
       .catch(() => setLoading(false));

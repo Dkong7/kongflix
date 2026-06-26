@@ -151,13 +151,11 @@ export default function Movies() {
             .slice(0, 6)
         );
         
-        // Auto-abrir modal si hay hash en la URL (al presionar F5)
-        if (window.location.hash) {
-          const slug = window.location.hash.substring(1);
-          const targetMovie = records.find(m => {
-            const mSlug = (m.tmdbTitle || m.name || 'pelicula').replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-            return mSlug === slug;
-          });
+        // Auto-abrir modal si hay ?id= en la URL
+        const searchParams = new URLSearchParams(window.location.search);
+        const urlId = searchParams.get('id');
+        if (urlId) {
+          const targetMovie = records.find(m => m.id === urlId);
           if (targetMovie) {
             setSelectedMedia(targetMovie);
             setIsModalOpen(true);
@@ -224,7 +222,8 @@ export default function Movies() {
 
   useEffect(() => {
     const handlePopState = () => {
-      if (!window.location.hash) {
+      const sp = new URLSearchParams(window.location.search);
+      if (!sp.get('id')) {
         setIsModalOpen(false);
         setSelectedMedia(null);
         document.body.style.overflow = 'auto';
@@ -238,15 +237,22 @@ export default function Movies() {
     setSelectedMedia(movie);
     setIsModalOpen(true);
     document.body.style.overflow = 'hidden';
-    const slug = (movie.tmdbTitle || movie.name || 'pelicula').replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-    window.history.pushState({ modal: true }, '', `#${slug}`);
+    
+    // Update URL query params without reloading
+    const url = new URL(window.location);
+    url.searchParams.set('id', movie.id);
+    window.history.pushState({ modal: true }, '', url.toString());
   };
   
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedMedia(null);
     document.body.style.overflow = 'auto';
-    if (window.location.hash) window.history.back();
+    
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.has('id')) {
+      window.history.back(); // Volver al estado anterior sin el id
+    }
   };
 
   if (loading) return (

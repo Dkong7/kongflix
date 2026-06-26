@@ -2,11 +2,11 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { pb } from '../services/pb';
 import { useViewNav } from '../hooks/useViewNav';
 import MediaCard from '../components/MediaCard';
-import ComicModal from '../components/ComicModal';
+import ComicModal from '../components/ComicModal'; // Podemos reusar el lector de cómics
 import { FaBookOpen, FaExclamationTriangle, FaArrowLeft, FaSpinner, FaDatabase, FaList } from 'react-icons/fa';
 
-export default function Comics() {
-  const [comics, setComics] = useState([]);
+export default function Libros() {
+  const [libros, setLibros] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -17,42 +17,33 @@ export default function Comics() {
   const [selectedComic, setSelectedComic] = useState(null);
   const [filterType, setFilterType] = useState('all');
   const [sortBy, setSortBy] = useState('alfabetico'); // 'alfabetico' o 'recientes'
-  const [searchTerm, setSearchTerm] = useState('');
 
   const [visibleCount, setVisibleCount] = useState(12);
   const loaderRef = useRef(null);
 
   useEffect(() => {
-    pb.collection('comics_db').getFullList({
+    pb.collection('libros_db').getFullList({
       sort: 'family,titleClean',
       requestKey: null
     }).then(records => {
-      setComics(records);
+      setLibros(records);
       setLoading(false);
-
-      const sp = new URLSearchParams(window.location.search);
-      const comicId = sp.get('comicId');
-      if (comicId) {
-        const target = records.find(c => c.id === comicId);
-        if (target) setSelectedComic(target);
-      }
     }).catch(err => {
       setErrorMsg(err.message);
       setLoading(false);
     });
   }, []);
 
+  const uniqueFamilies = useMemo(() => {
+    const families = new Set(libros.map(c => c.family || 'Otros Libros'));
+    return ['all', ...Array.from(families).sort()];
+  }, [libros]);
+
   const sagasList = useMemo(() => {
-    const grouped = comics.reduce((acc, comic) => {
-      // Group by saga name (extracting text before the issue number if present)
-      let sagaName = comic.titleClean || "Desconocido";
-      const match = sagaName.match(/^(.*?)\s+\d+.*$/);
-      if (match) {
-        sagaName = match[1].trim();
-      }
-      
+    const grouped = libros.reduce((acc, libro) => {
+      const sagaName = libro.titleClean || libro.folderName || "Desconocido";
       if (!acc[sagaName]) acc[sagaName] = [];
-      acc[sagaName].push(comic);
+      acc[sagaName].push(libro);
       return acc;
     }, {});
 
@@ -64,64 +55,34 @@ export default function Comics() {
         ? `https://drive.google.com/thumbnail?id=${firstWithCover.coverId}&sz=w600`
         : null;
 
-      // Las categorías principales pueden estar en family (Nuevos aportes) o en folderName (Excel viejo)
-      const validCategories = ["DC", "MARVEL", "MANGA", "CARTOONS", "GAMES COMICS", "ART BOOK", "+ HISTORIAS", "OTROS COMICS"];
-      let sagaFamily = 'OTROS COMICS';
-      for (const c of issues) {
-        let f = c.family ? c.family.trim().toUpperCase() : "";
-        f = f.replace("Ó", "O").replace("CÓMICS", "COMICS");
-        if (validCategories.includes(f)) {
-          sagaFamily = f;
-          break;
-        }
-        let fn = c.folderName ? c.folderName.trim().toUpperCase() : "";
-        fn = fn.replace("Ó", "O").replace("CÓMICS", "COMICS");
-        if (validCategories.includes(fn)) {
-          sagaFamily = fn;
-          break;
-        }
-      }
-      const latestCreated = Math.max(...issues.map(c => {
-        const d = new Date(c.created || c.dateCreated);
-        return isNaN(d.getTime()) ? 0 : d.getTime();
-      }));
+      const sagaFamily = firstWithCover.family || 'Otros Libros';
+      const latestCreated = Math.max(...issues.map(c => new Date(c.created).getTime() || 0));
 
       return {
         id: `saga_${sagaName.replace(/\s+/g, '_')}`,
         title: sagaName,
         name: sagaName,
-        type: sagaFamily.toUpperCase(), // Normalize to uppercase
+        type: sagaFamily,
         poster: imgUrl,
         issueCount: issues.length,
         issues: issues,
         latestCreated: latestCreated
       };
     });
-  }, [comics]);
-
-  const uniqueFamilies = useMemo(() => {
-    const families = new Set(sagasList.map(s => s.type));
-    return ['all', ...Array.from(families).sort()];
-  }, [sagasList]);
+  }, [libros]);
 
   const selectedSaga = selectedSagaName ? sagasList.find(s => s.title === selectedSagaName) : null;
   const newestSaga = sagasList.length > 0 ? [...sagasList].sort((a, b) => b.latestCreated - a.latestCreated)[0] : null;
 
   const filteredSagas = useMemo(() => {
     let filtered = sagasList.filter(saga => filterType === 'all' || saga.type === filterType);
-    
-    if (searchTerm.trim() !== '') {
-      const q = searchTerm.toLowerCase();
-      filtered = filtered.filter(saga => saga.title.toLowerCase().includes(q));
-    }
-    
     if (sortBy === 'alfabetico') {
       filtered = filtered.sort((a, b) => a.title.localeCompare(b.title));
     } else {
       filtered = filtered.sort((a, b) => b.latestCreated - a.latestCreated);
     }
     return filtered;
-  }, [sagasList, filterType, sortBy, searchTerm]);
+  }, [sagasList, filterType, sortBy]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(entries => {
@@ -130,28 +91,6 @@ export default function Comics() {
     if (loaderRef.current) observer.observe(loaderRef.current);
     return () => observer.disconnect();
   }, [filteredSagas, selectedSaga]);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      const sp = new URLSearchParams(window.location.search);
-      if (!sp.get('comicId')) setSelectedComic(null);
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
-  const openComic = (comic) => {
-    setSelectedComic(comic);
-    const url = new URL(window.location);
-    url.searchParams.set('comicId', comic.id);
-    window.history.pushState({ modal: true }, '', url.toString());
-  };
-
-  const closeComic = () => {
-    setSelectedComic(null);
-    const sp = new URLSearchParams(window.location.search);
-    if (sp.has('comicId')) window.history.back();
-  };
 
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#f0e6d3] gap-4">
@@ -173,7 +112,7 @@ export default function Comics() {
   return (
     <div className="min-h-screen bg-[#f0e6d3] bg-[url('/grid.png')] bg-repeat font-chakra pb-20">
 
-      {selectedComic && <ComicModal comic={selectedComic} onClose={closeComic} />}
+      {selectedComic && <ComicModal comic={selectedComic} onClose={() => setSelectedComic(null)} collectionName="libros_db" />}
 
       {/* ══ HERO HEADER ══ */}
       <div className="bg-[#1c1714] border-b-4 border-[#c85a17] px-6 py-10 md:p-12 relative overflow-hidden">
@@ -193,7 +132,7 @@ export default function Comics() {
                 <FaBookOpen size={10} /> {!selectedSaga ? 'RECIÉN AÑADIDO A LA BIBLIOTECA' : 'KONGFLIX · BIBLIOTECA GRÁFICA'}
               </div>
               <h1 className="text-4xl md:text-5xl lg:text-[5rem] font-black text-[#f0e6d3] uppercase tracking-tighter leading-none m-0 drop-shadow-[3px_3px_0_#c85a17] md:drop-shadow-[4px_4px_0_#c85a17] max-w-4xl">
-                {selectedSaga ? selectedSaga.title : (newestSaga ? newestSaga.title : 'Comics')}
+                {selectedSaga ? selectedSaga.title : (newestSaga ? newestSaga.title : 'Libros')}
               </h1>
 
               <div className="flex flex-wrap gap-3 md:gap-5 mt-4">
@@ -203,7 +142,7 @@ export default function Comics() {
                       <FaDatabase size={8} /> {filteredSagas.length} COLECCIONES
                     </span>
                     <span className="font-mono text-[8px] md:text-[9px] text-[#5c4a3d] tracking-[0.15em] flex items-center gap-1.5 px-2 py-1">
-                      <FaList size={8} /> {comics.length.toLocaleString()} VOLÚMENES TOTALES
+                      <FaList size={8} /> {libros.length.toLocaleString()} VOLÚMENES TOTALES
                     </span>
                     {newestSaga && (
                       <button onClick={() => navTo({ saga: newestSaga.title })} className="font-mono text-[8px] md:text-[9px] text-[#1c1714] tracking-[0.2em] bg-[#c85a17] hover:bg-[#d4b595] transition-colors flex items-center gap-1.5 border border-[#5c4a3d] px-4 py-1 font-bold cursor-pointer">
@@ -251,19 +190,12 @@ export default function Comics() {
               ))}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 py-2 pr-4">
-              <input 
-                type="text" 
-                placeholder="BUSCAR CÓMIC..." 
-                value={searchTerm} 
-                onChange={e => setSearchTerm(e.target.value)}
-                className="bg-[#1c1714] text-[#d4b595] border border-[#5c4a3d] px-3 py-1.5 font-mono text-[10px] uppercase font-bold outline-none w-40 md:w-56 focus:border-[#c85a17] transition-colors"
-              />
-              <span className="font-mono text-[9px] font-bold text-[#5c4a3d] tracking-widest uppercase ml-2 hidden md:inline">Ordenar por:</span>
+            <div className="flex items-center gap-2 py-2 pr-4">
+              <span className="font-mono text-[9px] font-bold text-[#5c4a3d] tracking-widest uppercase">Ordenar por:</span>
               <select 
                 value={sortBy} 
                 onChange={(e) => setSortBy(e.target.value)}
-                className="bg-[#1c1714] text-[#d4b595] border border-[#5c4a3d] px-2 py-1.5 font-mono text-[10px] uppercase font-bold outline-none cursor-pointer"
+                className="bg-[#1c1714] text-[#d4b595] border border-[#5c4a3d] px-2 py-1 font-mono text-[10px] uppercase font-bold outline-none cursor-pointer"
               >
                 <option value="alfabetico">ALFABÉTICO</option>
                 <option value="recientes">RECIÉN SUBIDOS</option>
@@ -319,7 +251,7 @@ export default function Comics() {
                         poster: imgUrl,
                         year: ''
                       }}
-                      onClick={() => openComic(comic)}
+                      onClick={() => setSelectedComic(comic)}
                     />
                   </div>
                 );

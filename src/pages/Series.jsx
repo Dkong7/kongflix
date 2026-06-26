@@ -64,6 +64,20 @@ export default function Series() {
           }
         }
         setHeroSeries(unique);
+
+        // Auto-abrir modal si hay ?id= en la URL
+        const searchParams = new URLSearchParams(window.location.search);
+        const urlId = searchParams.get('id');
+        if (urlId) {
+          const targetEp = records.find(r => r.id === urlId);
+          if (targetEp && targetEp.seriesName) {
+            setSelectedSeries({
+              name: targetEp.seriesName,
+              episodes: records.filter(r => r.seriesName === targetEp.seriesName),
+              startEpId: urlId // Passed down to select the specific episode
+            });
+          }
+        }
       } catch (err) {
         console.error("KONGFLIX_DB_ERROR:", err.status, err.response);
       } finally {
@@ -139,7 +153,8 @@ export default function Series() {
   // ── POPSTATE PARA BOTON ATRAS ──────────────────────────────
   useEffect(() => {
     const handlePopState = () => {
-      if (!window.location.hash) {
+      const sp = new URLSearchParams(window.location.search);
+      if (!sp.get('id')) {
         setSelectedSeries(null);
       }
     };
@@ -149,13 +164,22 @@ export default function Series() {
 
   const openSeries = (name, episodes) => {
     setSelectedSeries({ name, episodes });
-    const slug = name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-    window.history.pushState({ modal: true }, '', `#${slug}`);
+    
+    // Al abrir la serie, ponemos el id del primer episodio en la URL
+    const firstEp = episodes[0];
+    if (firstEp) {
+      const url = new URL(window.location);
+      url.searchParams.set('id', firstEp.id);
+      window.history.pushState({ modal: true }, '', url.toString());
+    }
   };
 
   const closeSeries = () => {
     setSelectedSeries(null);
-    if (window.location.hash) window.history.back();
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.has('id')) {
+      window.history.back();
+    }
   };
 
   // ── LOADING ────────────────────────────────────────────────

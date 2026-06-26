@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { pb } from '../services/pb';
+import ShareButton from '../components/ShareButton';
 import { FaPlay, FaDatabase, FaSearch, FaTimes, FaMusic, FaCompactDisc, FaList, FaTh, FaExternalLinkAlt } from 'react-icons/fa';
 import { useWatchProgress } from '../hooks/useWatchProgress';
 
@@ -69,6 +70,7 @@ function DrivePlayer({ track, concert, initialTime = 0, saveProgress, markFinish
     if (!videoRef.current) return;
     const current = videoRef.current.currentTime;
     lastSavedTime.current = current;
+    window._nervCurrentTime = Math.floor(current);
 
     // Guardado automático cada 10 segundos
     if (Math.floor(current) % 10 === 0 && current > 0) {
@@ -227,8 +229,14 @@ function ConcertCard({ concert, onClick }) {
 /* ─────────────────────────────────────────────────────────────
    CONCERT MODAL (PLAYER MAESTRO)
 ───────────────────────────────────────────────────────────── */
-function ConcertModal({ concert, onClose }) {
-  const [activeIdx, setActiveIdx] = useState(0);
+function ConcertModal({ concert, startTrackId, onClose }) {
+  const [activeIdx, setActiveIdx] = useState(() => {
+    if (startTrackId) {
+      const idx = concert.tracks.findIndex(t => t.id === startTrackId);
+      return idx !== -1 ? idx : 0;
+    }
+    return 0;
+  });
   const activeTrack = concert.tracks[activeIdx];
   const isMulti = concert.tracks.length > 1;
   const [imgErr, setImgErr] = useState(false);
@@ -243,9 +251,23 @@ function ConcertModal({ concert, onClose }) {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
+    if (activeTrack) {
+      const url = new URL(window.location);
+      url.searchParams.set('id', concert.id);
+      url.searchParams.set('trackId', activeTrack.id);
+      window.history.replaceState({ modal: true }, '', url.toString());
+    }
+  }, [activeTrack, concert.id]);
+
+  useEffect(() => {
     setIsReady(false);
+
+    const searchParams = new URLSearchParams(window.location.search);
+    const urlTime = parseInt(searchParams.get('t'), 10) || 0;
+
     loadProgress().then((rec) => {
-      if (rec && rec.progress) setResumeTime(rec.progress);
+      if (urlTime > 0) setResumeTime(urlTime);
+      else if (rec && rec.progress) setResumeTime(rec.progress);
       else setResumeTime(0);
       setIsReady(true);
     });
@@ -380,12 +402,18 @@ function ConcertModal({ concert, onClose }) {
         </div>
 
         {/* BOTÓN CERRAR (ABSOLUTO Z-999) */}
-        <button
-          onClick={onClose}
-          className="absolute top-0 right-0 z-[999] bg-[#c85a17] text-white border-none md:border-l-2 md:border-b-2 border-[#1c1714] px-4 py-3 cursor-pointer transition-colors hover:bg-[#1c1714] shadow-md"
-        >
-          <FaTimes size={18} />
-        </button>
+        <div className="absolute top-0 right-0 z-[999] flex gap-0">
+          <ShareButton 
+            urlToShare={`${window.location.origin}${window.location.pathname}?id=${concert.id}&trackId=${activeTrack.id}&t=${window._nervCurrentTime || 0}`}
+            className="border-none md:border-l-2 md:border-b-2 border-[#1c1714] bg-[#29221c] px-4 py-3 h-[42px]"
+          />
+          <button
+            onClick={onClose}
+            className="bg-[#c85a17] text-white border-none md:border-l-2 md:border-b-2 border-[#1c1714] px-4 py-3 cursor-pointer transition-colors hover:bg-[#1c1714] shadow-md h-[42px] flex items-center justify-center"
+          >
+            <FaTimes size={18} />
+          </button>
+        </div>
 
       </div>
     </div>
@@ -441,6 +469,39 @@ export default function Concerts() {
     });
   }, [records]);
 
+  // Deep linking for Concerts
+  useEffect(() => {
+    if (concerts.length === 0) return;
+    const searchParams = new URLSearchParams(window.location.search);
+    const urlId = searchParams.get('id');
+    if (urlId) {
+      const target = concerts.find(c => c.id === urlId);
+      if (target) setSelected(target);
+    }
+  }, [concerts]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const sp = new URLSearchParams(window.location.search);
+      if (!sp.get('id')) setSelected(null);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const openConcert = (concert) => {
+    setSelected(concert);
+    const url = new URL(window.location);
+    url.searchParams.set('id', concert.id);
+    window.history.pushState({ modal: true }, '', url.toString());
+  };
+
+  const closeConcert = () => {
+    setSelected(null);
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.has('id')) window.history.back();
+  };
+
   const filtered = useMemo(() => {
     return concerts.filter(c => {
       const isMulti = c.tracks.length > 1;
@@ -474,7 +535,11 @@ export default function Concerts() {
   return (
     <div className="min-h-screen bg-[#f0e6d3] bg-[url('/grid.png')] bg-repeat font-chakra pb-20">
 
-      {selected && <ConcertModal concert={selected} onClose={() => setSelected(null)} />}
+      {selected && <ConcertModal 
+        concert={selected} 
+        startTrackId={new URLSearchParams(window.location.search).get('trackId')}
+        onClose={closeConcert} 
+      />}
 
       {/* ══ HERO HEADER ══ */}
       <div className="bg-[#1c1714] border-b-4 border-[#c85a17] px-6 py-10 md:p-12">
@@ -554,7 +619,7 @@ export default function Concerts() {
         {viewMode === 'grid' && (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-5 animate-fade-in">
             {filtered.map(c => (
-              <ConcertCard key={c.id} concert={c} onClick={() => setSelected(c)} />
+              <ConcertCard key={c.id} concert={c} onClick={() => openConcert(c)} />
             ))}
           </div>
         )}
@@ -568,7 +633,7 @@ export default function Concerts() {
               return (
                 <div
                   key={c.id}
-                  onClick={() => setSelected(c)}
+                  onClick={() => openConcert(c)}
                   className="flex items-center gap-3 md:gap-5 p-3 md:p-4 cursor-pointer bg-[#e8d5b7] border-2 border-[#5c4a3d] border-l-4 transition-all hover:border-l-[#c85a17] hover:translate-x-1 hover:shadow-[3px_3px_0_0_#1c1714]"
                 >
                   <span className="font-mono text-[9px] md:text-[10px] color-[#5c4a3d] min-w-[24px] shrink-0">

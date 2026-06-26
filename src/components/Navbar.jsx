@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { FaBars, FaTimes, FaPowerOff } from 'react-icons/fa';
 
@@ -17,8 +17,11 @@ export default function Navbar({ user, onLogout }) {
     { path: 'courses', label: 'Educación' },
     { path: 'concerts', label: 'Conciertos' },
     { path: 'music', label: 'Música' },
-    { path: 'comics', label: 'Comics' }, 
-    { path: 'games', label: 'Juegos' }
+    { path: 'comics', label: 'Comics' },
+    { path: 'libros', label: 'Libros' },
+    { path: 'games', label: 'Juegos' },
+    { path: 'recursos', label: 'Recursos' },
+    { path: 'tv', label: 'TV' }
   ];
 
   return (

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { pb } from '../services/pb';
 import MediaCard from '../components/MediaCard';
 import MediaModal from '../components/MediaModal';
@@ -18,6 +18,13 @@ export default function Documentaries() {
           sort: '-year', requestKey: null,
         });
         setDocs(records);
+
+        const searchParams = new URLSearchParams(window.location.search);
+        const urlId = searchParams.get('id');
+        if (urlId) {
+          const target = records.find(m => m.id === urlId);
+          if (target) setSelectedDoc(target);
+        }
       } catch (err) {
         console.error('KONGFLIX_DOCS_ERROR:', err);
       } finally {
@@ -45,6 +52,28 @@ export default function Documentaries() {
       return matchSearch && matchGenre;
     });
   }, [docs, searchTerm, activeGenre]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const sp = new URLSearchParams(window.location.search);
+      if (!sp.get('id')) setSelectedDoc(null);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const openModal = (doc) => {
+    setSelectedDoc(doc);
+    const url = new URL(window.location);
+    url.searchParams.set('id', doc.id);
+    window.history.pushState({ modal: true }, '', url.toString());
+  };
+
+  const closeModal = () => {
+    setSelectedDoc(null);
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.has('id')) window.history.back();
+  };
 
   // ── LOADING ──────────────────────────────────────────────
   if (loading) return (
@@ -75,7 +104,7 @@ export default function Documentaries() {
     }}>
 
       {selectedDoc && (
-        <MediaModal media={selectedDoc} onClose={() => setSelectedDoc(null)} />
+        <MediaModal media={selectedDoc} onClose={closeModal} />
       )}
 
       {/* ══ HERO HEADER ════════════════════════════════════════ */}
@@ -243,7 +272,7 @@ export default function Documentaries() {
                 year:   doc.year  || '',
                 genres: doc.genres || '',
               }}
-              onClick={() => setSelectedDoc(doc)}
+              onClick={() => openModal(doc)}
             />
           ))}
         </div>

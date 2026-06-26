@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { pb } from '../services/pb';
 import { useViewNav } from '../hooks/useViewNav';
 import {
@@ -9,8 +9,9 @@ import {
   PlusSquare, Trash2, ListMusic, PlayCircle, GripVertical,
   Zap, ChevronDown, LayoutGrid, AlignJustify, Flame
 } from 'lucide-react';
+import ShareButton from '../components/ShareButton';
 
-/* â”€â”€â”€ PALETA KONGFLIX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── PALETA KONGFLIX ────────────────────────────────────────── */
 const C = {
   cream:    '#f0e6d3',
   panel:    '#e8d5b7',
@@ -25,9 +26,30 @@ const C = {
 
 const DRIVE_API_KEY = "AIzaSyAYHAuZb_neKRSlejQ5qd9RRY3C4FgxAE0";
 
-function driveThumb(id, sz = 'w300') {
-  if (!id) return null;
-  return `https://drive.google.com/thumbnail?id=${id}&sz=${sz}`;
+function buildUrlVariants(input, sz = 'w300') {
+  if (!input) return [];
+  if (input.startsWith('http')) {
+    if (input.includes('drive.google.com') || input.includes('googleusercontent')) {
+      const m = input.match(/(?:id=|\/d\/|open\?id=)([a-zA-Z0-9_-]{15,})/);
+      if (m) {
+        const id = m[1];
+        return [
+          `https://lh3.googleusercontent.com/d/${id}=${sz}`,
+          `https://drive.google.com/thumbnail?id=${id}&sz=${sz}`,
+          `https://drive.google.com/uc?export=view&id=${id}`
+        ];
+      }
+    }
+    return [input];
+  }
+  if (/^[a-zA-Z0-9_-]{15,}$/.test(input)) {
+    return [
+      `https://lh3.googleusercontent.com/d/${input}=${sz}`,
+      `https://drive.google.com/thumbnail?id=${input}&sz=${sz}`,
+      `https://drive.google.com/uc?export=view&id=${input}`
+    ];
+  }
+  return [input];
 }
 function driveStream(id) {
   return `https://www.googleapis.com/drive/v3/files/${id}?alt=media&key=${DRIVE_API_KEY}`;
@@ -42,14 +64,21 @@ function formatTime(s) {
 }
 
 function CoverArt({ coverId, title, size = 'full', className = '' }) {
-  const [err, setErr] = useState(false);
-  const src = !err && coverId ? driveThumb(coverId) : null;
-  if (src) return (
-    <img src={src} alt={title}
-         className={className}
-         style={{ width: size === 'full' ? '100%' : size, height: size === 'full' ? '100%' : size, objectFit: 'cover' }}
-         onError={() => setErr(true)} />
-  );
+  const variants = buildUrlVariants(coverId, size === 'full' ? 'w500' : 'w150');
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  if (!failed && variants.length > 0) {
+    return (
+      <img src={variants[attempt]} alt={title}
+           className={className}
+           style={{ width: size === 'full' ? '100%' : size, height: size === 'full' ? '100%' : size, objectFit: 'cover' }}
+           onError={() => {
+             if (attempt + 1 < variants.length) setAttempt(a => a + 1);
+             else setFailed(true);
+           }} />
+    );
+  }
   const hue = (title?.charCodeAt(0) || 0) % 360;
   return (
     <div className={className}
@@ -243,7 +272,36 @@ export default function Music() {
     audio.src = driveStream(track.driveId);
     audio.load();
     audio.play().then(() => setPlaying(true)).catch(() => { setPlaybackErr(true); setPlaying(false); });
+
+    // Actualizar URL
+    const url = new URL(window.location);
+    url.searchParams.set('trackId', track.id);
+    window.history.replaceState(null, '', url.toString());
   }, []);
+
+  /* ── DEEP LINKING ON LOAD ── */
+  useEffect(() => {
+    if (allRecords.length === 0) return;
+    const sp = new URLSearchParams(window.location.search);
+    const urlTrackId = sp.get('trackId');
+    const urlTime = parseInt(sp.get('t'), 10) || 0;
+    
+    // Only auto-play if we haven't already started playing something
+    if (urlTrackId && !curRef.current) {
+      const targetTrack = allRecords.find(r => r.id === urlTrackId);
+      if (targetTrack) {
+        const albumTracks = allRecords.filter(r => r.album === targetTrack.album).sort((a,b) => (a.trackNum||0)-(b.trackNum||0));
+        playTrack(targetTrack, albumTracks.length > 0 ? albumTracks : [targetTrack], false);
+        if (urlTime > 0) {
+          const onCanPlay = () => {
+            audioRef.current.currentTime = urlTime;
+            audioRef.current.removeEventListener('canplay', onCanPlay);
+          };
+          audioRef.current.addEventListener('canplay', onCanPlay);
+        }
+      }
+    }
+  }, [allRecords, playTrack]);
 
   const togglePlay = () => {
     if (!curRef.current) return;
@@ -1072,6 +1130,10 @@ export default function Music() {
               <input type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} onChange={e => { setVolume(parseFloat(e.target.value)); setMuted(false); }} style={{ width: 70, accentColor: C.orange, cursor: 'pointer' }} />
             </div>
             <button onClick={() => setShowQueue(!showQueue)} style={{ background: showQueue ? `${C.orange}33` : 'none', border: 'none', cursor: 'pointer', color: showQueue ? C.orange : C.brown, padding: '6px 8px', transition: 'all 0.12s' }}><ListMusic size={16} /></button>
+            <ShareButton 
+              urlToShare={current ? `${window.location.origin}${window.location.pathname}?trackId=${current.id}&t=${Math.floor(progress)}` : ''} 
+              className="p-1.5 border border-transparent hover:border-[#5c4a3d] ml-2" 
+            />
           </div>
         </div>
       </div>

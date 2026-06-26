@@ -12,6 +12,8 @@ import {
   Filter, SlidersHorizontal, CircleDot, Radio,
   Flame, Trophy, Lightbulb
 } from 'lucide-react';
+import ShareButton from '../components/ShareButton';
+import VideoPlayer from '../components/VideoPlayer';
 
 const SCHOOL_STYLES = [
   { keys: ['adobe'], Icon: Layers, color: '#c85a17' },
@@ -68,8 +70,8 @@ function CourseCard({ course, onClick }) {
   const catMeta = getAcademyMeta(course.academy);
   return (
     <div onClick={onClick} className="cursor-pointer bg-[#e8d5b7] border-2 border-[#5c4a3d] hover:border-[#c85a17] shadow-[3px_3px_0_0_#1c1714] hover:shadow-[5px_5px_0_0_#c85a17] transition-all hover:-translate-y-1 flex flex-col overflow-hidden group h-full">
-      <div className="relative aspect-[16/9] bg-[#1c1714] overflow-hidden flex-shrink-0">
-        {src ? (<img src={src} alt={course.course_Name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onError={()=>setImgErr(true)} />) : (
+      <div className="relative aspect-[3/4] bg-[#1c1714] overflow-hidden flex-shrink-0">
+        {src ? (<img src={src} alt={course.course_Name} className="w-full h-full object-contain bg-[#1c1714] group-hover:scale-105 transition-transform duration-500" onError={()=>setImgErr(true)} />) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{background:'linear-gradient(135deg,#1c1714,#2a2018)'}}>
             <catMeta.Icon size={28} color={catMeta.color} strokeWidth={1} />
             <span className="font-mono text-[7px] text-[#5c4a3d] tracking-widest">SIN PORTADA</span>
@@ -98,14 +100,31 @@ function CourseCard({ course, onClick }) {
 }
 
 function LMSPlayer({ course, lessons, onBack }) {
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [activeIdx, setActiveIdx] = useState(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const ep = parseInt(sp.get('ep'), 10);
+    if (ep && ep > 0 && ep <= lessons.length) return ep - 1;
+    return 0;
+  });
   const active = lessons[activeIdx];
-  const driveUrl = active ? `https://drive.google.com/file/d/${active.driveId}/preview` : null;
   const mediaId = lessons.length > 0 ? lessons[0].id : 'unknown';
   const { loadProgress, saveProgress, percent } = useWatchProgress('course', mediaId);
   const [watchedSet, setWatchedSet] = useState(new Set());
+  const [activeTab, setActiveTab] = useState('videos');
+  const [expandedSections, setExpandedSections] = useState({});
+  
+  const videoLessons = useMemo(() => lessons.map((l, i) => ({...l, originalIdx: i})).filter(l => l.fileType !== 'resource'), [lessons]);
+  const resourceLessons = useMemo(() => lessons.map((l, i) => ({...l, originalIdx: i})).filter(l => l.fileType === 'resource'), [lessons]);
+
+  const toggleSection = (sec) => {
+    setExpandedSections(prev => ({ ...prev, [sec]: !prev[sec] }));
+  };
 
   useEffect(() => {
+    // Solo carga progreso si no vinimos de un deep link directo a un episodio
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.has('ep')) return;
+
     loadProgress().then(rec => {
       if (rec && rec.progress) {
         setActiveIdx(Math.min(rec.progress, lessons.length - 1));
@@ -115,6 +134,13 @@ function LMSPlayer({ course, lessons, onBack }) {
       }
     });
   }, [mediaId, loadProgress, lessons.length]);
+
+  // Actualizar la URL cuando cambia la lección
+  useEffect(() => {
+    const url = new URL(window.location);
+    url.searchParams.set('ep', activeIdx + 1);
+    window.history.replaceState(null, '', url.toString());
+  }, [activeIdx]);
 
   const markWatched = (idx) => {
     setWatchedSet(prev => {
@@ -132,6 +158,28 @@ function LMSPlayer({ course, lessons, onBack }) {
   const episodeNum = active?.episode || activeIdx + 1;
   const progressPercent = lessons.length > 0 ? Math.round((watchedSet.size / lessons.length) * 100) : 0;
 
+  // Determine if it's a carousel by checking transcription_txt
+  let isCarousel = false;
+  try {
+    if (active?.transcription_txt && active.transcription_txt.startsWith('[')) {
+      isCarousel = true;
+    }
+  } catch(e) {}
+
+  const isResource = active?.fileType === 'resource';
+  const driveUrl = active ? ((isCarousel || isResource) ? `https://drive.google.com/drive/folders/${active.driveId}` : `https://drive.google.com/file/d/${active.driveId}/preview`) : null;
+  // If it's a resource (e.g. PDF), Drive might need preview instead of folder url, but usually resources are files, so we use preview url:
+  const resourceIframeUrl = active && isResource ? `https://drive.google.com/file/d/${active.driveId}/preview` : null;
+
+  // Mark watched automatically after a few seconds
+  useEffect(() => {
+    if (lessons.length === 0) return;
+    const timer = setTimeout(() => {
+      markWatched(activeIdx);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [activeIdx, lessons.length]);
+
   return (
     <div className="flex flex-col gap-0 animate-fade-in">
       <div className="flex items-center gap-2 md:gap-4 mb-4 flex-wrap">
@@ -139,17 +187,29 @@ function LMSPlayer({ course, lessons, onBack }) {
         <div className="flex items-center gap-1.5 md:gap-2 font-mono text-[8px] md:text-[9px] text-[#5c4a3d] flex-1 min-w-[150px] truncate">
           <GraduationCap size={10} color="#c85a17" className="shrink-0" /><span className="truncate">{course.academy?.toUpperCase()}</span><ChevronRight size={8} color="#d4b595" className="shrink-0" /><span className="text-[#1c1714] font-bold truncate">{course.course_Name?.toUpperCase()}</span>
         </div>
-        <div className="flex gap-1 shrink-0 ml-auto">
+        <div className="flex gap-2 shrink-0 ml-auto items-center">
+          <ShareButton 
+            urlToShare={`${window.location.origin}${window.location.pathname}?view=player&academy=${encodeURIComponent(course.academy)}&course=${encodeURIComponent(course.course_Name)}&ep=${activeIdx + 1}`}
+            className="p-1.5 md:p-2 border-2 border-[#5c4a3d] hover:border-[#1c1714]"
+          />
           <button onClick={goPrev} disabled={activeIdx === 0} className="p-1.5 md:p-2 border-2 border-[#5c4a3d] bg-transparent disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#5c4a3d] hover:text-white transition-colors"><ChevronDown size={12} className="transform rotate-90" /></button>
           <button onClick={goNext} disabled={activeIdx === lessons.length - 1} className="p-1.5 md:p-2 border-2 border-[#5c4a3d] bg-transparent disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#5c4a3d] hover:text-white transition-colors"><ChevronUp size={12} className="transform rotate-90" /></button>
         </div>
       </div>
       <div className="flex flex-col lg:flex-row gap-0 border-[3px] border-[#1c1714] shadow-[4px_4px_0_0_#c85a17] md:shadow-[6px_6px_0_0_#c85a17] overflow-hidden min-h-[500px]">
         <div className="flex-[2] flex flex-col bg-[#e8d5b7] border-b-[3px] lg:border-b-0 lg:border-r-[3px] border-[#5c4a3d] overflow-hidden">
-          <div className="relative w-full aspect-[16/9] bg-[#1c1714] shrink-0">
-            {driveUrl && <iframe src={driveUrl} className="absolute inset-0 w-full h-full border-none" allow="autoplay; fullscreen" allowFullScreen onLoad={() => markWatched(activeIdx)} />}
-            <div className="absolute top-2 left-2 md:top-3 md:left-3 pointer-events-none"><div className="bg-[#1c1714]/90 border border-[#c85a17] text-[#c85a17] font-mono text-[7px] md:text-[8px] font-bold tracking-[0.2em] px-2 py-1 flex items-center gap-1.5"><Radio size={8} className="animate-pulse" /> EN VIVO</div></div>
-            <div className="absolute bottom-2 right-2 md:bottom-3 md:right-3 pointer-events-none"><div className="bg-[#1c1714]/90 text-[#d4b595] font-mono text-[7px] md:text-[8px] font-bold px-2 py-1 flex items-center gap-1.5 border border-[#5c4a3d]"><CircleDot size={8} color="#c85a17" />{String(activeIdx + 1).padStart(2, '0')} / {String(lessons.length).padStart(2, '0')}</div></div>
+          <div className="relative w-full aspect-[16/9] bg-[#1c1714] shrink-0 flex items-center justify-center">
+            {active && (
+              isResource ? (
+                <iframe src={resourceIframeUrl} className="absolute inset-0 w-full h-full border-none bg-white" allow="autoplay; fullscreen" allowFullScreen />
+              ) : isCarousel ? (
+                <iframe src={driveUrl} className="absolute inset-0 w-full h-full border-none bg-white" allow="autoplay; fullscreen" allowFullScreen />
+              ) : (
+                <VideoPlayer src={active.driveId} mediaId={active.id} disableTracking={true} transcriptionEs={active.transcription_txt} transcriptionEn={active.transcription_en_txt} />
+              )
+            )}
+            {!isResource && !isCarousel && <div className="absolute top-2 left-2 md:top-3 md:left-3 pointer-events-none z-20"><div className="bg-[#1c1714]/90 border border-[#c85a17] text-[#c85a17] font-mono text-[7px] md:text-[8px] font-bold tracking-[0.2em] px-2 py-1 flex items-center gap-1.5"><Radio size={8} className="animate-pulse" /> EN VIVO</div></div>}
+            <div className="absolute top-2 right-2 md:top-3 md:right-3 pointer-events-none z-20"><div className="bg-[#1c1714]/90 text-[#d4b595] font-mono text-[7px] md:text-[8px] font-bold px-2 py-1 flex items-center gap-1.5 border border-[#5c4a3d]"><CircleDot size={8} color="#c85a17" />{String(activeIdx + 1).padStart(2, '0')} / {String(lessons.length).padStart(2, '0')}</div></div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-4">
             <div className="border-l-4 border-[#c85a17] pl-3 md:pl-4">
@@ -175,27 +235,82 @@ function LMSPlayer({ course, lessons, onBack }) {
           </div>
         </div>
         <div className="flex-1 flex flex-col bg-[#f0e6d3] w-full lg:max-w-[320px] lg:min-w-[250px] h-[350px] lg:h-auto">
-          <div className="p-3 md:p-4 bg-[#1c1714] border-b-[3px] border-[#c85a17] flex items-center gap-2 shrink-0"><GraduationCap size={12} color="#c85a17" /><span className="font-mono text-[9px] md:text-[10px] font-bold text-[#d4b595] tracking-[0.15em] flex-1">PROGRAMA</span><span className="font-mono text-[8px] text-[#5c4a3d]">{lessons.length}</span></div>
-          <div className="p-2.5 md:p-3 bg-[#e8d5b7] border-b-2 border-[#d4b595] shrink-0">
-            <div className="flex justify-between items-center mb-1.5"><span className="font-mono text-[7px] text-[#5c4a3d] flex items-center gap-1"><BarChart2 size={8} color="#c85a17" /> PROGRESO</span><span className="font-mono text-[7px] text-[#c85a17] font-bold">{progressPercent}%</span></div>
-            <div className="h-1 bg-[#d4b595] w-full relative overflow-hidden"><div className="absolute inset-y-0 left-0 bg-[#c85a17] transition-all duration-500" style={{ width: `${progressPercent}%` }} /></div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-1.5 scrollbar-hide">
-            {lessons.map((lesson, idx) => {
-              const isActive = idx === activeIdx;
-              const isDone = watchedSet.has(idx);
-              const lname = lesson.lesson_name || `Lección ${idx + 1}`;
-              return (
-                <button key={lesson.id || idx} onClick={() => setActiveIdx(idx)} className={`w-full text-left p-2 md:p-2.5 flex items-center gap-2 cursor-pointer border-none border-l-4 mb-1 transition-all ${isActive ? 'border-[#c85a17] bg-[#e8d5b7] shadow-[2px_2px_0_0_#5c4a3d]' : isDone ? 'border-[#6a994e] bg-transparent' : 'border-transparent bg-transparent hover:bg-[#e8d5b7]'}`}>
-                  <div className={`w-5 h-5 md:w-6 md:h-6 rounded-full shrink-0 flex items-center justify-center border ${isActive ? 'bg-[#c85a17] border-[#1c1714]' : isDone ? 'bg-[#6a994e] border-transparent' : 'bg-[#d4b595] border-transparent'}`}>
-                    {isActive ? <Play size={7} fill="#fff" color="#fff" className="ml-0.5" /> : isDone ? <CheckCircle2 size={10} color="#fff" /> : <span className="font-mono text-[7px] text-[#5c4a3d] font-bold">{String(idx + 1).padStart(2, '0')}</span>}
-                  </div>
-                  <div className="flex-1 min-w-0 pr-1"><span className={`font-chakra text-[9px] md:text-[10px] block truncate ${isActive ? 'font-bold text-[#1c1714]' : 'text-[#5c4a3d]'}`}>{lname}</span></div>
-                  {isActive && <Flame size={9} color="#c85a17" className="shrink-0 animate-pulse" />}
-                </button>
-              );
-            })}
-          </div>
+          {resourceLessons.length > 0 ? (
+            <div className="flex bg-[#1c1714] border-b-[3px] border-[#c85a17] shrink-0">
+              <button onClick={() => setActiveTab('videos')} className={`flex-1 p-3 font-mono text-[9px] md:text-[10px] font-bold tracking-[0.15em] transition-colors ${activeTab === 'videos' ? 'text-[#c85a17] bg-[#2a231f] border-b-2 border-[#c85a17]' : 'text-[#d4b595] border-b-2 border-transparent hover:bg-[#2a231f]'}`}>VIDEOS ({videoLessons.length})</button>
+              <button onClick={() => setActiveTab('resources')} className={`flex-1 p-3 font-mono text-[9px] md:text-[10px] font-bold tracking-[0.15em] transition-colors ${activeTab === 'resources' ? 'text-[#c85a17] bg-[#2a231f] border-b-2 border-[#c85a17]' : 'text-[#d4b595] border-b-2 border-transparent hover:bg-[#2a231f]'}`}>RECURSOS ({resourceLessons.length})</button>
+            </div>
+          ) : (
+            <div className="p-3 md:p-4 bg-[#1c1714] border-b-[3px] border-[#c85a17] flex items-center gap-2 shrink-0"><GraduationCap size={12} color="#c85a17" /><span className="font-mono text-[9px] md:text-[10px] font-bold text-[#d4b595] tracking-[0.15em] flex-1">PROGRAMA</span><span className="font-mono text-[8px] text-[#5c4a3d]">{lessons.length}</span></div>
+          )}
+          
+          {activeTab === 'videos' && (
+            <>
+              <div className="p-2.5 md:p-3 bg-[#e8d5b7] border-b-2 border-[#d4b595] shrink-0">
+                <div className="flex justify-between items-center mb-1.5"><span className="font-mono text-[7px] text-[#5c4a3d] flex items-center gap-1"><BarChart2 size={8} color="#c85a17" /> PROGRESO</span><span className="font-mono text-[7px] text-[#c85a17] font-bold">{progressPercent}%</span></div>
+                <div className="h-1 bg-[#d4b595] w-full relative overflow-hidden"><div className="absolute inset-y-0 left-0 bg-[#c85a17] transition-all duration-500" style={{ width: `${progressPercent}%` }} /></div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-1.5 scrollbar-hide">
+                {(() => {
+                  const groups = {};
+                  videoLessons.forEach(({ ...l }) => {
+                    let sec = l.section || (l.season ? `Módulo ${l.season}` : 'General');
+                    sec = sec.replace(/Season/gi, 'Módulo');
+                    if (!groups[sec]) groups[sec] = [];
+                    groups[sec].push(l);
+                  });
+                  const activeSecName = active ? (active.section ? active.section.replace(/Season/gi, 'Módulo') : (active.season ? `Módulo ${active.season}` : 'General')) : '';
+                  return Object.entries(groups).map(([secName, items]) => {
+                    const isExpanded = expandedSections[secName] !== undefined ? expandedSections[secName] : (secName === activeSecName);
+                    return (
+                      <div key={secName} className="mb-2">
+                        <button onClick={() => toggleSection(secName)} className="w-full flex justify-between items-center bg-[#e8d5b7] p-2 mb-1 border-l-2 border-[#c85a17] hover:bg-[#d4b595] transition-colors">
+                          <span className="font-chakra text-[10px] md:text-xs font-bold text-[#c85a17] uppercase tracking-wider">{secName}</span>
+                          {isExpanded ? <ChevronUp size={12} color="#5c4a3d" /> : <ChevronDown size={12} color="#5c4a3d" />}
+                        </button>
+                        {isExpanded && items.map((lesson) => {
+                          const idx = lesson.originalIdx;
+                          const isActive = idx === activeIdx;
+                          const isDone = watchedSet.has(idx);
+                          const lname = lesson.lesson_name || `Lección ${idx + 1}`;
+                          return (
+                            <button key={lesson.id || idx} onClick={() => setActiveIdx(idx)} className={`w-full text-left p-2 md:p-2.5 flex items-center gap-2 cursor-pointer border-none border-l-4 mb-1 transition-all ml-1 ${isActive ? 'border-[#c85a17] bg-[#e8d5b7] shadow-[2px_2px_0_0_#5c4a3d]' : isDone ? 'border-[#6a994e] bg-transparent' : 'border-transparent bg-transparent hover:bg-[#e8d5b7]'}`}>
+                              <div className={`w-5 h-5 md:w-6 md:h-6 rounded-full shrink-0 flex items-center justify-center border ${isActive ? 'bg-[#c85a17] border-[#1c1714]' : isDone ? 'bg-[#6a994e] border-transparent' : 'bg-[#d4b595] border-transparent'}`}>
+                                {isActive ? <Play size={7} fill="#fff" color="#fff" className="ml-0.5" /> : isDone ? <CheckCircle2 size={10} color="#fff" /> : <span className="font-mono text-[7px] text-[#5c4a3d] font-bold">{String(idx + 1).padStart(2, '0')}</span>}
+                              </div>
+                              <div className="flex-1 min-w-0 pr-1"><span className={`font-chakra text-[9px] md:text-[10px] block truncate ${isActive ? 'font-bold text-[#1c1714]' : 'text-[#5c4a3d]'}`}>{lname}</span></div>
+                              {isActive && <Flame size={9} color="#c85a17" className="shrink-0 animate-pulse" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'resources' && (
+            <div className="flex-1 overflow-y-auto p-4 scrollbar-hide flex flex-col gap-2">
+              <div className="font-mono text-[10px] text-[#5c4a3d] tracking-widest uppercase mb-2 border-b border-[#d4b595] pb-2">Material Adicional</div>
+              {resourceLessons.map((lesson) => {
+                const idx = lesson.originalIdx;
+                const isActive = idx === activeIdx;
+                return (
+                  <button key={lesson.id || idx} onClick={() => setActiveIdx(idx)} className={`w-full flex items-center gap-3 p-3 border-2 transition-all ${isActive ? 'border-[#c85a17] bg-[#e8d5b7]' : 'border-[#d4b595] hover:border-[#c85a17] hover:bg-[#e8d5b7]'}`}>
+                    <div className="bg-[#1c1714] text-[#d4b595] p-2 rounded shrink-0">
+                      <FolderOpen size={14} />
+                    </div>
+                    <div className="flex-1 text-left min-w-0">
+                      <div className="font-chakra text-[11px] font-bold text-[#1c1714] truncate">{lesson.lesson_name}</div>
+                      <div className="font-mono text-[8px] text-[#c85a17] mt-0.5">{lesson.fileType}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -258,7 +373,20 @@ export default function Courses() {
 
   const openCourse = (course) => {
     navTo({ view: 'player', course: course.course_Name });
-    const recs = allRecords.filter(r => (r.course_Name || '').trim() === course.course_Name && (r.academy || '').trim() === course.academy).sort((a, b) => (a.order || a.episode || 0) - (b.order || b.episode || 0));
+    const recs = allRecords.filter(r => (r.course_Name || '').trim() === course.course_Name && (r.academy || '').trim() === course.academy).sort((a, b) => {
+      const seasonDiff = (a.season || 0) - (b.season || 0);
+      if (seasonDiff !== 0) return seasonDiff;
+      
+      const secA = (a.section || '').toLowerCase();
+      const secB = (b.section || '').toLowerCase();
+      if (secA === 'recursos' && secB !== 'recursos') return -1;
+      if (secB === 'recursos' && secA !== 'recursos') return 1;
+      
+      const sectionDiff = secA.localeCompare(secB);
+      if (sectionDiff !== 0) return sectionDiff;
+      
+      return (a.order || a.episode || 0) - (b.order || b.episode || 0);
+    });
     setLessons(recs);
   };
 
@@ -365,7 +493,7 @@ export default function Courses() {
             {coursesInAcademy.length === 0 ? (
               <div className="text-center py-20 border-2 border-dashed border-[#d4b595] flex flex-col items-center gap-3"><FolderOpen size={36} color="#d4b595" /><div className="font-mono text-[10px] text-[#5c4a3d] tracking-[0.2em]">NO_COURSES_FOUND</div></div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-5">
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
                 {coursesInAcademy.map(course => (<CourseCard key={course.course_Name} course={course} onClick={() => openCourse(course)} />))}
               </div>
             )}

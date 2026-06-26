@@ -1,13 +1,69 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { pb } from '../services/pb';
 import { useWatchProgress } from '../hooks/useWatchProgress';
-import { FaTimes, FaSearchPlus, FaSearchMinus, FaArrowLeft, FaArrowRight, FaSpinner, FaExclamationTriangle, FaHeart, FaRegHeart, FaBookOpen } from 'react-icons/fa';
+import { FaTimes, FaSearchPlus, FaSearchMinus, FaArrowLeft, FaArrowRight, FaSpinner, FaExclamationTriangle, FaHeart, FaRegHeart, FaBookOpen, FaScroll } from 'react-icons/fa';
+import ShareButton from './ShareButton';
 
-export default function ComicModal({ comic, onClose }) {
+/** COMPONENTE INTERNO: Renderiza 1 sola página con Lazy Loading para Modo Cascada */
+const PdfPage = memo(({ pdfDoc, pageNum, zoom, isTwoPage, onVisible }) => {
+  const canvasRef = useRef(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  // Lazy loading
+  useEffect(() => {
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) {
+        setIsVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '1000px' });
+    if (canvasRef.current) observer.observe(canvasRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Tracking para guardar progreso
+  useEffect(() => {
+    const tracker = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && entries[0].intersectionRatio > 0.5) {
+        if(onVisible) onVisible(pageNum);
+      }
+    }, { threshold: 0.5 });
+    if (canvasRef.current) tracker.observe(canvasRef.current);
+    return () => tracker.disconnect();
+  }, [pageNum, onVisible]);
+
+  useEffect(() => {
+    let renderTask = null;
+    if (isVisible && pdfDoc && canvasRef.current) {
+      pdfDoc.getPage(pageNum).then(page => {
+        const viewport = page.getViewport({ scale: zoom });
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        const ctx = canvas.getContext('2d');
+        renderTask = page.render({ canvasContext: ctx, viewport });
+      });
+    }
+    return () => { if(renderTask) renderTask.cancel(); };
+  }, [isVisible, pdfDoc, pageNum, zoom]);
+
+  // Si es 2 páginas y no es la portada (página 1), usa width 50%
+  const flexWidth = (isTwoPage && pageNum > 1) ? 'w-1/2 md:w-1/2' : 'w-full';
+
+  return (
+    <div className={`flex justify-center items-center ${flexWidth} p-1 shrink-0 transition-all`} id={`page-${pageNum}`}>
+      <canvas ref={canvasRef} className="shadow-[4px_4px_0_0_#0f0c0a] md:shadow-[8px_8px_0_0_#0f0c0a] bg-[#e8d5b7] max-w-full" style={{ height: 'auto' }}></canvas>
+    </div>
+  );
+});
+
+export default function ComicModal({ comic, onClose, collectionName = 'comics_db' }) {
   const [zoom, setZoom] = useState(0.4); 
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [isTwoPage, setIsTwoPage] = useState(false);
+  const [readMode, setReadMode] = useState('paginated'); // 'paginated' | 'cascade'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isFav, setIsFav] = useState(comic.favorite || false);
@@ -17,7 +73,6 @@ export default function ComicModal({ comic, onClose }) {
   const pdfDocRef = useRef(null);
   
   const scrollRef = useRef(null);
-  const contentRef = useRef(null);
   const dragState = useRef({ isDown: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
 
   // Hook de Progreso Integrado
@@ -32,7 +87,6 @@ export default function ComicModal({ comic, onClose }) {
         setLoading(true);
         setError(null);
 
-        // 1.1 Recuperar Progreso de Lectura
         const rec = await loadProgress();
         let initialPage = 1;
         if (rec && rec.progress) {
@@ -40,7 +94,6 @@ export default function ComicModal({ comic, onClose }) {
           setCurrentPage(initialPage);
         }
 
-        // 1.2 Inicializar Motor PDF.js
         const pdfjsLib = window.pdfjsLib;
         if (!pdfjsLib) throw new Error("Motor PDF.js no detectado.");
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -55,8 +108,17 @@ export default function ComicModal({ comic, onClose }) {
         setTotalPages(pdf.numPages);
         setLoading(false);
         
-        // 1.3 Renderizar la página recuperada (o la 1 por defecto)
-        renderPages(initialPage, 0.4, isTwoPage);
+        if (readMode === 'paginated') {
+            renderPages(initialPage, 0.4, isTwoPage);
+        } else {
+            // Scroll a la página guardada en modo cascada después de un tick
+            setTimeout(() => {
+                const el = document.getElementById(`page-${initialPage}`);
+                if (el && scrollRef.current) {
+                    scrollRef.current.scrollTop = el.offsetTop - 100;
+                }
+            }, 500);
+        }
 
       } catch (err) {
         setError(err.message);
@@ -81,8 +143,9 @@ export default function ComicModal({ comic, onClose }) {
     }
   }, [currentPage, totalPages, saveProgress, comic]);
 
-  // MOTOR DE RENDERIZADO
+  // MOTOR DE RENDERIZADO (MODO PAGINADO)
   const renderPages = async (pageNum, currentZoom, twoPageMode) => {
+    if (readMode !== 'paginated') return;
     if (!pdfDocRef.current) return;
     try {
       await renderSinglePage(pageNum, canvas1Ref.current, currentZoom);
@@ -109,12 +172,12 @@ export default function ComicModal({ comic, onClose }) {
 
   // RE-RENDER AL CAMBIAR ZOOM O MODO DOS PÁGINAS
   useEffect(() => {
-    if (!loading && pdfDocRef.current) {
+    if (!loading && pdfDocRef.current && readMode === 'paginated') {
       renderPages(currentPage, zoom, isTwoPage);
     }
-  }, [zoom, isTwoPage]);
+  }, [zoom, isTwoPage, readMode]);
 
-  // CONTROLES DE PÁGINA
+  // CONTROLES DE PÁGINA (PAGINADO)
   const handleNext = () => {
     const step = isTwoPage ? 2 : 1;
     if (currentPage + step <= totalPages) {
@@ -139,12 +202,18 @@ export default function ComicModal({ comic, onClose }) {
     try {
       const newState = !isFav;
       setIsFav(newState);
-      await pb.collection('comics_db').update(comic.id, { favorite: newState });
+      await pb.collection(collectionName).update(comic.id, { favorite: newState });
     } catch (err) { setIsFav(!isFav); }
   };
 
   const handleZoomOut = () => setZoom(z => Number(Math.max(0.1, z - 0.1).toFixed(2)));
   const handleZoomIn = () => setZoom(z => Number(Math.min(5.0, z + 0.1).toFixed(2)));
+
+  const toggleReadMode = () => {
+      setReadMode(prev => prev === 'paginated' ? 'cascade' : 'paginated');
+      // Asegurarse que el scroll vuelva a arriba si cambia a paginado
+      if (readMode === 'cascade' && scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
 
   // CONTROLES DE ARRASTRE
   const onMouseDown = (e) => {
@@ -203,6 +272,25 @@ export default function ComicModal({ comic, onClose }) {
     return () => { scrollEl.removeEventListener('wheel', handleWheel); };
   }, []);
 
+  // Renderizar páginas dinámicamente en Modo Cascada
+  const renderCascadePages = () => {
+    if (!pdfDocRef.current || totalPages === 0) return null;
+    const pages = [];
+    for (let i = 1; i <= totalPages; i++) {
+        pages.push(
+            <PdfPage 
+                key={i} 
+                pdfDoc={pdfDocRef.current} 
+                pageNum={i} 
+                zoom={zoom} 
+                isTwoPage={isTwoPage} 
+                onVisible={(n) => setCurrentPage(n)}
+            />
+        );
+    }
+    return pages;
+  };
+
   return (
     <div className="fixed inset-0 bg-[#1c1714]/95 z-[100] flex flex-col p-2 md:p-4 backdrop-blur-md font-chakra">
       
@@ -214,7 +302,6 @@ export default function ComicModal({ comic, onClose }) {
             {comic.titleClean || comic.titleOriginal}
           </div>
           
-          {/* Botón Cerrar en Móvil (Aparece a la derecha del título) */}
           <button onClick={onClose} className="md:hidden bg-[#5c4a3d] text-[#e6d5c3] px-3 py-1.5 font-bold hover:bg-[#c85a17] hover:text-[#1c1714] transition-colors flex items-center gap-2 border-2 border-[#1c1714] active:scale-95 text-xs">
             <FaTimes />
           </button>
@@ -223,6 +310,14 @@ export default function ComicModal({ comic, onClose }) {
         <div className="w-full md:w-auto flex flex-wrap justify-center md:justify-end items-center gap-2 md:gap-4">
           <button onClick={toggleFav} className="text-xl p-2 hover:scale-110 transition-transform">
             {isFav ? <FaHeart className="text-[#c85a17]" /> : <FaRegHeart className="text-[#d4b595]" />}
+          </button>
+
+          <button 
+            onClick={toggleReadMode} 
+            className="bg-[#1c1714] text-[#d4b595] px-3 py-1.5 border border-[#5c4a3d] text-xs font-bold uppercase hover:border-[#c85a17] transition-colors flex items-center gap-2"
+          >
+            {readMode === 'cascade' ? <FaScroll className="text-[#c85a17]" /> : <FaBookOpen className="text-[#c85a17]" />}
+            {readMode === 'cascade' ? 'CASCADA' : 'PAGINADO'}
           </button>
 
           <button 
@@ -239,8 +334,12 @@ export default function ComicModal({ comic, onClose }) {
             <button onClick={handleZoomIn} className="p-1 hover:text-[#c85a17]"><FaSearchPlus /></button>
           </div>
 
-          {/* Botón Cerrar en PC */}
-          <button onClick={onClose} className="hidden md:flex bg-[#5c4a3d] text-[#e6d5c3] px-4 py-1.5 font-bold hover:bg-[#c85a17] hover:text-[#1c1714] transition-colors items-center gap-2 border-2 border-transparent hover:border-[#1c1714] active:scale-95">
+          <ShareButton 
+            urlToShare={`${window.location.origin}${window.location.pathname}?comicId=${comic.id}`}
+            className="hidden md:flex px-4 py-1.5 h-8 border border-transparent hover:border-[#1c1714] bg-[#29221c]"
+          />
+
+          <button onClick={onClose} className="hidden md:flex bg-[#5c4a3d] text-[#e6d5c3] px-4 py-1.5 h-8 font-bold hover:bg-[#c85a17] hover:text-[#1c1714] transition-colors items-center gap-2 border-2 border-transparent hover:border-[#1c1714] active:scale-95">
             <FaTimes /> CERRAR
           </button>
         </div>
@@ -269,14 +368,25 @@ export default function ComicModal({ comic, onClose }) {
           </div>
         )}
         
-        <div ref={contentRef} className="inline-flex gap-2 justify-center align-middle pointer-events-none min-h-full min-w-full p-4 md:p-8">
-          <canvas ref={canvas1Ref} className="shadow-[4px_4px_0_0_#0f0c0a] md:shadow-[8px_8px_0_0_#0f0c0a] bg-[#e8d5b7]"></canvas>
-          <canvas ref={canvas2Ref} className="shadow-[4px_4px_0_0_#0f0c0a] md:shadow-[8px_8px_0_0_#0f0c0a] bg-[#e8d5b7] hidden"></canvas>
-        </div>
+        {/* MODO PAGINADO TRADICIONAL */}
+        {readMode === 'paginated' && !loading && !error && (
+            <div className="inline-flex gap-2 justify-center align-middle pointer-events-none min-h-full min-w-full p-4 md:p-8">
+                <canvas ref={canvas1Ref} className="shadow-[4px_4px_0_0_#0f0c0a] md:shadow-[8px_8px_0_0_#0f0c0a] bg-[#e8d5b7]"></canvas>
+                <canvas ref={canvas2Ref} className="shadow-[4px_4px_0_0_#0f0c0a] md:shadow-[8px_8px_0_0_#0f0c0a] bg-[#e8d5b7] hidden"></canvas>
+            </div>
+        )}
+
+        {/* MODO CASCADA DINÁMICO */}
+        {readMode === 'cascade' && !loading && !error && (
+            <div className="flex flex-wrap justify-center align-middle pointer-events-none min-h-full min-w-full p-4 md:p-8 pb-[80vh]">
+                {renderCascadePages()}
+            </div>
+        )}
+
       </div>
 
-      {/* ── CONTROLES INFERIORES DE PÁGINA ── */}
-      {!loading && !error && totalPages > 0 && (
+      {/* ── CONTROLES INFERIORES DE PÁGINA (SOLO MODO PAGINADO) ── */}
+      {readMode === 'paginated' && !loading && !error && totalPages > 0 && (
         <div className="bg-[#29221c] border-2 border-[#5c4a3d] p-2 mt-2 flex justify-between items-center shrink-0">
           <button 
             onClick={handlePrev} 
@@ -298,6 +408,15 @@ export default function ComicModal({ comic, onClose }) {
             <FaArrowRight size={16} />
           </button>
         </div>
+      )}
+
+      {/* ── INDICADOR FLOTANTE DE PÁGINA (SOLO MODO CASCADA) ── */}
+      {readMode === 'cascade' && !loading && !error && totalPages > 0 && (
+          <div className="fixed bottom-6 right-6 md:bottom-10 md:right-10 bg-[#1c1714]/90 border-2 border-[#c85a17] px-4 py-2 pointer-events-none shadow-[4px_4px_0_0_#0f0c0a]">
+              <div className="text-[#d4b595] font-mono font-bold text-[10px] md:text-xs tracking-widest text-center">
+                 PÁGINA <span className="text-[#c85a17] text-lg mx-1">{currentPage}</span> DE {totalPages}
+              </div>
+          </div>
       )}
     </div>
   );

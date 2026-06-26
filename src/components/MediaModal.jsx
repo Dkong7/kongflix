@@ -3,6 +3,7 @@ import { FaTimes, FaDatabase, FaCalendarAlt, FaSignal, FaBiohazard, FaExternalLi
 import { useWatchProgress } from '../hooks/useWatchProgress';
 import videojs from 'video.js';
 import 'video.js/dist/video-js.css';
+import ShareButton from './ShareButton';
 
 // ─── HELPERS DE URL ────────────────────────────────────────────
 function driveVariants(id) {
@@ -27,7 +28,7 @@ function buildUrlVariants(input) {
 }
 
 // ─── PROXY PLAYER CON VIDEO.JS + ATAJOS YOUTUBE ──────────────
-function ProxyPlayer({ media, initialTime = 0, saveProgress, markFinished }) {
+function ProxyPlayer({ media, initialTime = 0, saveProgress, markFinished, onContextMenu }) {
   const containerRef = useRef(null);
   const playerRef = useRef(null);
   const lastSavedTime = useRef(initialTime);
@@ -99,9 +100,17 @@ function ProxyPlayer({ media, initialTime = 0, saveProgress, markFinished }) {
       if (initialTime > 0) player.currentTime(initialTime);
     });
 
+    if (onContextMenu) {
+      player.on('contextmenu', (e) => {
+        e.preventDefault();
+        onContextMenu(e);
+      });
+    }
+
     // Guardar progreso cada 10s
     player.on('timeupdate', () => {
       const t = Math.floor(player.currentTime());
+      window._nervCurrentTime = t; // Global variable for ShareButton
       if (t !== lastSavedTime.current) {
         lastSavedTime.current = t;
         if (t % 10 === 0 && t > 0) syncProgressToDBRef.current(t);
@@ -285,6 +294,7 @@ function DrivePlayer({ media, initialTime = 0, saveProgress, markFinished }) {
   const [useIframe, setUseIframe] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [proxyKey, setProxyKey] = useState(0);
+  const [contextMenu, setContextMenu] = useState(null);
 
   const driveId = media.driveId;
   const embedUrl = `https://drive.google.com/file/d/${driveId}/preview?usp=sharing`;
@@ -312,11 +322,31 @@ function DrivePlayer({ media, initialTime = 0, saveProgress, markFinished }) {
     });
   };
 
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  const copyUrl = (withTime = false) => {
+    const url = new URL(window.location.origin + window.location.pathname);
+    url.searchParams.set('id', media.id);
+    if (withTime && window._nervCurrentTime) {
+      url.searchParams.set('t', window._nervCurrentTime);
+    }
+    navigator.clipboard.writeText(url.toString());
+    closeContextMenu();
+  };
+
   if (!driveId) return <div className="text-[#c85a17] p-10 font-bold uppercase flex h-full items-center justify-center">NO_DRIVE_ID_FOUND</div>;
 
   return (
-    <div className="w-full h-full flex flex-col bg-black">
-      <div className="relative w-full flex-1 min-h-0 bg-black flex items-center justify-center group">
+    <div className="w-full h-full flex flex-col bg-black" onClick={closeContextMenu}>
+      <div 
+        className="relative w-full flex-1 min-h-0 bg-black flex items-center justify-center group"
+        onContextMenu={handleContextMenu}
+      >
         {!useIframe ? (
           <ProxyPlayer
             key={proxyKey}
@@ -324,6 +354,7 @@ function DrivePlayer({ media, initialTime = 0, saveProgress, markFinished }) {
             initialTime={initialTime}
             saveProgress={saveProgress}
             markFinished={markFinished}
+            onContextMenu={handleContextMenu}
           />
         ) : (
           <iframe
@@ -333,6 +364,26 @@ function DrivePlayer({ media, initialTime = 0, saveProgress, markFinished }) {
             allowFullScreen
             title="video-player"
           />
+        )}
+
+        {contextMenu && (
+          <div 
+            className="fixed z-[9999] bg-[#29221c] border border-[#5c4a3d] shadow-[4px_4px_0_0_#1c1714] flex flex-col py-2 w-64"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+          >
+            <button 
+              onClick={(e) => { e.stopPropagation(); copyUrl(false); }}
+              className="text-left px-4 py-2 text-[11px] font-black uppercase text-[#d4b595] hover:bg-[#c85a17] hover:text-[#1c1714] transition-colors"
+            >
+              Copiar URL del video
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); copyUrl(true); }}
+              className="text-left px-4 py-2 text-[11px] font-black uppercase text-[#d4b595] hover:bg-[#c85a17] hover:text-[#1c1714] transition-colors"
+            >
+              Copiar URL en el momento actual
+            </button>
+          </div>
         )}
       </div>
 
@@ -397,6 +448,10 @@ export default function MediaModal({ media, onClose }) {
 
   const mediaType = media.collectionName === 'series' ? 'series' : 'movie';
   const { loadProgress, saveProgress, markFinished, percent } = useWatchProgress(mediaType, media.id);
+  
+  // URL override for initial time
+  const searchParams = new URLSearchParams(window.location.search);
+  const urlTime = parseInt(searchParams.get('t'), 10) || 0;
 
   // Borra el cache del VPS al cerrar
   const cleanupCache = useCallback(() => {
@@ -414,7 +469,9 @@ export default function MediaModal({ media, onClose }) {
     document.body.style.overflow = 'hidden';
 
     loadProgress().then((rec) => {
-      if (rec && rec.progress) {
+      if (urlTime > 0) {
+        setResumeTime(urlTime);
+      } else if (rec && rec.progress) {
         setResumeTime(rec.progress);
       }
       setIsReady(true);
@@ -434,9 +491,15 @@ export default function MediaModal({ media, onClose }) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 md:p-6 bg-[#1c1714]/95 backdrop-blur-md font-chakra">
       <div className="relative w-full max-w-[1300px] h-full md:h-[85vh] bg-[#1c1714] border-2 border-[#5c4a3d] shadow-[6px_6px_0_0_#5c4a3d] flex flex-col md:flex-row overflow-hidden">
 
-        <button onClick={handleClose} className="absolute top-4 right-4 z-[110] bg-[#c85a17] text-[#1c1714] px-3 py-1.5 border-2 border-[#1c1714] font-black text-[10px] tracking-widest uppercase hover:bg-[#d4b595] transition-colors shadow-[2px_2px_0_0_#1c1714] flex items-center gap-2">
-          <FaTimes /> ABORT_MISSION
-        </button>
+        <div className="absolute top-4 right-4 z-[110] flex items-center gap-2">
+          <ShareButton 
+            urlToShare={`${window.location.origin}${window.location.pathname}?id=${media.id}&t=${window._nervCurrentTime || 0}`}
+            className="shadow-[2px_2px_0_0_#1c1714] bg-[#29221c]"
+          />
+          <button onClick={handleClose} className="bg-[#c85a17] text-[#1c1714] px-3 py-1.5 border-2 border-[#1c1714] font-black text-[10px] tracking-widest uppercase hover:bg-[#d4b595] transition-colors shadow-[2px_2px_0_0_#1c1714] flex items-center gap-2">
+            <FaTimes /> ABORT_MISSION
+          </button>
+        </div>
 
         {/* SIDEBAR */}
         <div className="hidden lg:flex flex-col bg-[#29221c] border-r-2 border-[#5c4a3d] p-5 gap-4 overflow-y-auto w-[280px] shrink-0">

@@ -21,6 +21,16 @@ export default function ComedyPage() {
           name: item.tmdbTitle || item.name,
         }));
         setItems(formatted);
+
+        // Auto-abrir modal si hay ?id= en la URL
+        const searchParams = new URLSearchParams(window.location.search);
+        const urlId = searchParams.get('id');
+        if (urlId) {
+          const targetItem = formatted.find(m => m.id === urlId);
+          if (targetItem) {
+            setSelectedMedia(targetItem);
+          }
+        }
       } catch (err) {
         console.error('KONGFLIX_COMEDY_ERROR:', err);
       } finally {
@@ -39,6 +49,32 @@ export default function ComedyPage() {
     return list;
   }, [items, searchTerm, sortBy]);
 
+  useEffect(() => {
+    const handlePopState = () => {
+      const sp = new URLSearchParams(window.location.search);
+      if (!sp.get('id')) {
+        setSelectedMedia(null);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const openModal = (item) => {
+    setSelectedMedia(item);
+    const url = new URL(window.location);
+    url.searchParams.set('id', item.id);
+    window.history.pushState({ modal: true }, '', url.toString());
+  };
+
+  const closeModal = () => {
+    setSelectedMedia(null);
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.has('id')) {
+      window.history.back();
+    }
+  };
+
   // ── LOADING ──────────────────────────────────────────────
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0e6d3' }}>
@@ -56,7 +92,7 @@ export default function ComedyPage() {
       fontFamily: "'Chakra Petch', sans-serif",
     }}>
 
-      {selectedMedia && <MediaModal media={selectedMedia} onClose={() => setSelectedMedia(null)} />}
+      {selectedMedia && <MediaModal media={selectedMedia} onClose={closeModal} />}
 
       {/* ══ HERO HEADER ════════════════════════════════════════ */}
       <div style={{ background: '#1c1714', borderBottom: '4px solid #c85a17', padding: '48px 32px 32px' }}>
@@ -187,7 +223,7 @@ export default function ComedyPage() {
                 year:   item.year   || '',
                 genres: item.genres || '',
               }}
-              onClick={() => setSelectedMedia(item)}
+              onClick={() => openModal(item)}
             />
           ))}
         </div>
