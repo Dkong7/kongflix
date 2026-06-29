@@ -88,12 +88,23 @@ function ProxyPlayer({ media, initialTime = 0, saveProgress, markFinished, onCon
           'durationDisplay',
           'progressControl',
           'playbackRateMenuButton',
+          'subsCapsButton',
           'pictureInPictureToggle',
           'fullscreenToggle',
         ],
         volumePanel: { inline: true },
       },
     });
+
+    if (media.subtitleId) {
+      player.addRemoteTextTrack({
+        kind: 'subtitles',
+        src: `https://kongflix-app.duckdns.org/stream/${media.subtitleId}`,
+        srclang: 'es',
+        label: 'Español',
+        default: true
+      }, false);
+    }
 
     // Restaurar posición guardada
     player.on('loadedmetadata', () => {
@@ -313,6 +324,17 @@ function DrivePlayer({ media, initialTime = 0, saveProgress, markFinished }) {
       console.warn("NERV_SYNC_ERR:", e.message);
     }
     setTimeout(() => setIsSaving(false), 1000);
+  };
+
+  const toggleFullscreen = () => {
+    // The video element is inside ProxyPlayer, but for iframe we can't easily PiP.
+    // Wait, in MediaModal, ProxyPlayer renders videojs which has its own fullscreen button. 
+    // This DrivePlayer only renders iframe or ProxyPlayer. If it's ProxyPlayer, videojs handles it.
+    // But let's add it anyway to the DrivePlayer if needed, or maybe just let ProxyPlayer handle it.
+    // Actually, in MediaModal, we don't have `<video ref={videoRef}>` in DrivePlayer! It's in ProxyPlayer!
+    // Since ProxyPlayer uses videojs, it ALREADY HAS Fullscreen and PiP controls on the bottom bar natively!
+    // The user issue was probably ONLY with SeriesModal which used a raw `<video>` tag!
+    // I will just add the `min-h-0` to the sidebar list in MediaModal to prevent layout overlap on mobile.
   };
 
   const toggleMode = () => {

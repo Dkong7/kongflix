@@ -4,7 +4,7 @@ import { useWatchProgress } from '../hooks/useWatchProgress';
 import ShareButton from './ShareButton';
 
 // ─── MOTOR DE REPRODUCCIÓN (IFRAME FIRST) ──────────────
-function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markFinished }) {
+function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markFinished, onVideoEnded, onNext, onPrev, hasNext, hasPrev, isAutoplay, setIsAutoplay }) {
   const videoRef = useRef(null);
   const lastSavedTime = useRef(initialTime);
   const [useIframe, setUseIframe] = useState(false);
@@ -89,6 +89,27 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
     closeContextMenu();
   };
 
+  const toggleFullscreen = () => {
+    if (!videoRef.current) return;
+    const el = videoRef.current.parentElement; // Element to make fullscreen
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else if (el.requestFullscreen) {
+      el.requestFullscreen();
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen(); // Safari
+    }
+  };
+
+  const togglePiP = async () => {
+    if (!videoRef.current) return;
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture();
+    } else if (videoRef.current.requestPictureInPicture) {
+      await videoRef.current.requestPictureInPicture();
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (lastSavedTime.current > 0 && !useIframe) {
@@ -96,6 +117,32 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
       }
     };
   }, [useIframe]);
+
+  // Integrar MediaSession API para soportar botones Siguiente/Anterior en Video Flotante (PiP) y control de medios del sistema
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: `${seriesName} - T${String(episode.season).padStart(2,'0')}E${String(episode.episode).padStart(2,'0')}`,
+        artist: 'Kongflix',
+        album: seriesName,
+        artwork: [
+          { src: episode.poster || episode.coverId || 'https://via.placeholder.com/512x512', sizes: '512x512', type: 'image/jpeg' }
+        ]
+      });
+
+      if (hasPrev) {
+        navigator.mediaSession.setActionHandler('previoustrack', onPrev);
+      } else {
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+      }
+
+      if (hasNext) {
+        navigator.mediaSession.setActionHandler('nexttrack', onNext);
+      } else {
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+      }
+    }
+  }, [episode, seriesName, hasPrev, hasNext, onPrev, onNext]);
 
   if (!driveId) return <div className="text-[#c85a17] p-10 font-bold uppercase flex h-full items-center justify-center">NO_DRIVE_ID_FOUND</div>;
 
@@ -115,12 +162,19 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
             preload="auto"
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
-            onEnded={() => syncProgressToDB(Math.floor(videoRef.current.currentTime), true)}
+            onEnded={async () => {
+              await syncProgressToDB(Math.floor(videoRef.current.currentTime), true);
+              if (onVideoEnded) onVideoEnded();
+            }}
             onContextMenu={(e) => { e.preventDefault(); handleContextMenu(e); }}
             onError={handleNetworkDrop}
             className="w-full h-full outline-none object-contain"
             style={{ filter: 'contrast(1.05)' }} 
-          />
+          >
+            {episode.subtitleId && (
+              <track kind="subtitles" src={`https://kongflix-app.duckdns.org/stream/${episode.subtitleId}`} srcLang="es" label="Español" default />
+            )}
+          </video>
         ) : (
           <iframe
             src={`https://drive.google.com/file/d/${driveId}/preview?usp=sharing`}
@@ -134,6 +188,38 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
         {!useIframe && (
           <div className="absolute top-4 left-4 z-10 pointer-events-none font-chakra text-[#d4b595] text-[10px] font-bold tracking-widest opacity-60 flex items-center gap-2">
             <span className="w-2 h-2 bg-[#c85a17] rounded-full animate-pulse"></span> DIRECT_LINK
+          </div>
+        )}
+
+        {!useIframe && (
+          <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 flex justify-between px-2 md:px-6 pointer-events-none z-20">
+            <button 
+               onClick={(e) => { e.stopPropagation(); if (onPrev) onPrev(); }}
+               disabled={!hasPrev}
+               className={`pointer-events-auto bg-[#1c1714]/70 hover:bg-[#c85a17] text-[#d4b595] hover:text-[#1c1714] rounded-full p-2.5 md:p-4 border border-[#5c4a3d] transition-all shadow-[0_0_15px_rgba(0,0,0,0.5)] flex items-center justify-center backdrop-blur-sm ${hasPrev ? 'opacity-40 hover:opacity-100 hover:scale-110 cursor-pointer' : 'opacity-0'}`}
+               title="Episodio Anterior"
+            >
+               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            </button>
+            <button 
+               onClick={(e) => { e.stopPropagation(); if (onNext) onNext(); }}
+               disabled={!hasNext}
+               className={`pointer-events-auto bg-[#1c1714]/70 hover:bg-[#c85a17] text-[#d4b595] hover:text-[#1c1714] rounded-full p-2.5 md:p-4 border border-[#5c4a3d] transition-all shadow-[0_0_15px_rgba(0,0,0,0.5)] flex items-center justify-center backdrop-blur-sm ${hasNext ? 'opacity-40 hover:opacity-100 hover:scale-110 cursor-pointer' : 'opacity-0'}`}
+               title="Siguiente Episodio"
+            >
+               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+          </div>
+        )}
+
+        {!useIframe && (
+          <div className="absolute top-4 right-4 z-20 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={togglePiP} className="bg-black/60 hover:bg-[#c85a17] text-white rounded p-2 border border-[#d4b595]/50 transition-colors backdrop-blur-sm cursor-pointer" title="Pantalla Flotante (PiP)">
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><rect x="12" y="11" width="7" height="8" rx="1" ry="1"/></svg>
+            </button>
+            <button onClick={toggleFullscreen} className="bg-black/60 hover:bg-[#c85a17] text-white rounded p-2 border border-[#d4b595]/50 transition-colors backdrop-blur-sm cursor-pointer" title="Pantalla Completa">
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            </button>
           </div>
         )}
 
@@ -181,6 +267,18 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
 
         <div className="flex-1 min-w-[20px]" />
 
+        {/* AUTOPLAY SWITCH JUNTO AL DRIVE LINK */}
+        {!useIframe && (
+          <label className="flex items-center gap-2 cursor-pointer shrink-0 group mr-2 pr-4 border-r border-[#5c4a3d]">
+            <span className="font-mono text-[8px] md:text-[9px] text-[#d4b595] font-bold uppercase tracking-widest group-hover:text-white transition-colors">AutoPlay</span>
+            <div className="relative">
+              <input type="checkbox" className="sr-only" checked={isAutoplay} onChange={(e) => setIsAutoplay(e.target.checked)} />
+              <div className={`block w-8 h-4 rounded-full transition-colors ${isAutoplay ? 'bg-[#c85a17]' : 'bg-[#5c4a3d]'}`}></div>
+              <div className={`dot absolute left-1 top-1 bg-[#1c1714] w-2 h-2 rounded-full transition-transform ${isAutoplay ? 'transform translate-x-4' : ''}`}></div>
+            </div>
+          </label>
+        )}
+
         <a href={viewUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-[#29221c] text-[#d4b595] border border-[#5c4a3d] px-3 py-1.5 text-[9px] font-black tracking-widest uppercase no-underline font-mono whitespace-nowrap hover:bg-[#5c4a3d] transition-colors shrink-0">
           <FaExternalLinkAlt size={10} /> DRIVE_LINK
         </a>
@@ -211,8 +309,38 @@ export default function SeriesModal({ seriesName, episodes, startEpId, onClose }
     return seasons[seasonNumbers[0]][0];
   }, [episodes, startEpId, seasons, seasonNumbers]);
 
+  const sortedEpisodes = useMemo(() => {
+    return [...episodes].sort((a, b) => {
+      const sA = a.season || 1;
+      const sB = b.season || 1;
+      if (sA !== sB) return sA - sB;
+      return a.episode - b.episode;
+    });
+  }, [episodes]);
+
   const [activeSeason, setActiveSeason] = useState(initialEp.season || seasonNumbers[0]);
   const [currentEp, setCurrentEp] = useState(initialEp);
+  const [isAutoplay, setIsAutoplay] = useState(true);
+
+  const currentIndex = sortedEpisodes.findIndex(e => e.id === currentEp.id);
+  const hasNext = currentIndex >= 0 && currentIndex < sortedEpisodes.length - 1;
+  const hasPrev = currentIndex > 0;
+
+  const handleNext = () => {
+    if (hasNext) {
+      const nextEp = sortedEpisodes[currentIndex + 1];
+      setActiveSeason(nextEp.season || 1);
+      setCurrentEp(nextEp);
+    }
+  };
+
+  const handlePrev = () => {
+    if (hasPrev) {
+      const prevEp = sortedEpisodes[currentIndex - 1];
+      setActiveSeason(prevEp.season || 1);
+      setCurrentEp(prevEp);
+    }
+  };
 
   // Hook de progreso para el episodio activo
   const { loadProgress, saveProgress, markFinished } = useWatchProgress('series', currentEp.id);
@@ -278,6 +406,17 @@ export default function SeriesModal({ seriesName, episodes, startEpId, onClose }
                 initialTime={resumeTime} 
                 saveProgress={saveProgress} 
                 markFinished={markFinished} 
+                onVideoEnded={() => {
+                  if (isAutoplay && hasNext) {
+                    handleNext();
+                  }
+                }}
+                onNext={handleNext}
+                onPrev={handlePrev}
+                hasNext={hasNext}
+                hasPrev={hasPrev}
+                isAutoplay={isAutoplay}
+                setIsAutoplay={setIsAutoplay}
               />
             )}
             
@@ -311,23 +450,25 @@ export default function SeriesModal({ seriesName, episodes, startEpId, onClose }
         </div>
 
         {/* ══ LADO DERECHO: SELECTOR TEMPORADAS + EPISODIOS ══ */}
-        <div className="flex-1 flex flex-col bg-[#f0e6d3] min-w-0 md:max-w-[380px] relative z-20">
+        <div className="flex-1 flex flex-col bg-[#f0e6d3] min-h-0 min-w-0 md:max-w-[380px] relative z-20">
 
           {/* Header */}
-          <div className="p-3 md:p-4 bg-[#1c1714] border-b-2 md:border-b-4 border-[#c85a17] flex items-center gap-2 shrink-0">
-            <FaTerminal size={10} className="text-[#c85a17] hidden md:block" />
-            <span className="font-mono text-[9px] md:text-[10px] font-bold text-[#d4b595] tracking-[0.2em] uppercase truncate">
-              ARCHIVO // {seriesName}
-            </span>
+          <div className="p-3 md:p-4 bg-[#1c1714] border-b-2 md:border-b-4 border-[#c85a17] flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <FaTerminal size={10} className="text-[#c85a17] hidden md:block shrink-0" />
+              <span className="font-mono text-[9px] md:text-[10px] font-bold text-[#d4b595] tracking-[0.2em] uppercase truncate">
+                ARCHIVO // {seriesName}
+              </span>
+            </div>
           </div>
 
           {/* Tabs temporadas */}
-          <div className="flex overflow-x-auto border-b-2 border-[#5c4a3d] bg-[#e8d5b7] shrink-0 scrollbar-hide">
+          <div className="flex flex-wrap border-b-2 border-[#5c4a3d] bg-[#e8d5b7] shrink-0">
             {seasonNumbers.map(s => (
               <button
                 key={s}
                 onClick={() => { setActiveSeason(s); setCurrentEp(seasons[s][0]); }}
-                className={`px-4 py-2.5 font-mono text-[9px] md:text-[10px] font-bold tracking-[0.15em] uppercase whitespace-nowrap border-r border-[#d4b595] transition-all border-b-4 ${
+                className={`px-4 py-2.5 font-mono text-[9px] md:text-[10px] font-bold tracking-[0.15em] uppercase whitespace-nowrap border-r border-[#d4b595] transition-all border-b-4 flex-1 md:flex-none ${
                   activeSeason === s 
                   ? 'border-b-[#c85a17] bg-[#c85a17] text-white' 
                   : 'border-b-transparent text-[#5c4a3d] hover:bg-[#d4b595]'

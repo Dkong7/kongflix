@@ -17,7 +17,17 @@ export default function Documentaries() {
         const records = await pb.collection('documentaries').getFullList({
           sort: '-year', requestKey: null,
         });
-        setDocs(records);
+        
+        const uniqueDocs = [];
+        const seen = new Set();
+        records.forEach(d => {
+          const title = (d.tmdbTitle || d.name || '').trim().toLowerCase();
+          if (title && !seen.has(title)) {
+            seen.add(title);
+            uniqueDocs.push(d);
+          }
+        });
+        setDocs(uniqueDocs);
 
         const searchParams = new URLSearchParams(window.location.search);
         const urlId = searchParams.get('id');

@@ -45,22 +45,21 @@ export default function Series() {
         const unique = [];
         const seen   = new Set();
         for (const rec of records) {
-          if (!seen.has(rec.seriesName)) {
+          const seriesKey = (rec.seriesName || 'UNKNOWN').trim().toLowerCase();
+          if (!seen.has(seriesKey)) {
             // Check if ANY episode of this series has a poster
-            const allEps = records.filter(r => r.seriesName === rec.seriesName);
-            const epWithPoster = allEps.find(r => r.poster);
-            
-            if (epWithPoster) {
-              seen.add(rec.seriesName);
-              // Use the episode that has the poster so the hero can render it
-              unique.push(epWithPoster);
-              if (unique.length >= 6) break;
-            } else if (rec.poster) {
-              // Fallback just in case
-              seen.add(rec.seriesName);
-              unique.push(rec);
+            const allEps = records.filter(r => (r.seriesName || 'UNKNOWN').trim().toLowerCase() === seriesKey);
+            const hasAnyPoster = allEps.some(e => e.poster && e.poster.trim() !== '');
+            if (hasAnyPoster) {
+              // Encuentra el primer episodio que SÍ tenga póster
+              const epWithPoster = allEps.find(e => e.poster && e.poster.trim() !== '');
+              unique.push({
+                ...rec,
+                poster: epWithPoster.poster // Forzamos que el objeto 'único' use el póster válido
+              });
               if (unique.length >= 6) break;
             }
+            seen.add(seriesKey);
           }
         }
         setHeroSeries(unique);
@@ -127,24 +126,25 @@ export default function Series() {
       return (item.seriesName || '').toLowerCase().includes(searchTerm.toLowerCase());
     });
 
-    // 2. Agrupar
+    // 2. Agrupar (case-insensitive)
     const grouped = filtered.reduce((acc, item) => {
-      const key = item.seriesName || 'UNKNOWN';
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(item);
+      const originalName = item.seriesName || 'UNKNOWN';
+      const key = originalName.trim().toLowerCase();
+      if (!acc[key]) {
+        acc[key] = { name: originalName, items: [] };
+      }
+      acc[key].items.push(item);
       return acc;
     }, {});
 
-    // 3. Ordenar
-    return Object.entries(grouped).sort(([nameA, itemsA], [nameB, itemsB]) => {
+    // 3. Ordenar y dar formato [name, items]
+    const groupedArray = Object.values(grouped).map(g => [g.name, g.items]);
+    return groupedArray.sort(([nameA, itemsA], [nameB, itemsB]) => {
       if (sortBy === 'ALPHA') {
         return nameA.localeCompare(nameB);
       } else {
-        // En lugar de calcular fechas, buscamos el índice original más bajo en allRecords 
-        // (el índice más bajo es el más reciente porque PocketBase ya lo ordenó).
         const indexA = Math.min(...itemsA.map(ep => allRecords.indexOf(ep)));
         const indexB = Math.min(...itemsB.map(ep => allRecords.indexOf(ep)));
-        
         return indexA - indexB;
       }
     });

@@ -95,6 +95,27 @@ function DrivePlayer({ track, concert, initialTime = 0, saveProgress, markFinish
     setTimeout(() => setIsSaving(false), 1000);
   };
 
+  const toggleFullscreen = () => {
+    if (!videoRef.current) return;
+    const el = videoRef.current.parentElement;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else if (el.requestFullscreen) {
+      el.requestFullscreen();
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+    }
+  };
+
+  const togglePiP = async () => {
+    if (!videoRef.current) return;
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture();
+    } else if (videoRef.current.requestPictureInPicture) {
+      await videoRef.current.requestPictureInPicture();
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (lastSavedTime.current > 0 && !useIframe) {
@@ -107,7 +128,7 @@ function DrivePlayer({ track, concert, initialTime = 0, saveProgress, markFinish
 
   return (
     <div className="w-full h-full flex flex-col bg-black">
-      <div className="relative w-full flex-1 min-h-0 bg-black flex items-center justify-center">
+      <div className="relative w-full flex-1 min-h-0 bg-black flex items-center justify-center group">
         {!useIframe ? (
           <video
             ref={videoRef}
@@ -134,6 +155,17 @@ function DrivePlayer({ track, concert, initialTime = 0, saveProgress, markFinish
         {!useIframe && (
           <div className="absolute top-4 left-4 z-10 pointer-events-none font-chakra text-[#d4b595] text-[10px] font-bold tracking-widest opacity-60 flex items-center gap-2">
             <span className="w-2 h-2 bg-[#c85a17] rounded-full animate-pulse"></span> DIRECT_LINK
+          </div>
+        )}
+
+        {!useIframe && (
+          <div className="absolute top-4 right-4 z-20 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={togglePiP} className="bg-black/60 hover:bg-[#c85a17] text-white rounded p-2 border border-[#d4b595]/50 transition-colors backdrop-blur-sm cursor-pointer" title="Pantalla Flotante (PiP)">
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><rect x="12" y="11" width="7" height="8" rx="1" ry="1"/></svg>
+            </button>
+            <button onClick={toggleFullscreen} className="bg-black/60 hover:bg-[#c85a17] text-white rounded p-2 border border-[#d4b595]/50 transition-colors backdrop-blur-sm cursor-pointer" title="Pantalla Completa">
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            </button>
           </div>
         )}
       </div>
@@ -355,7 +387,7 @@ function ConcertModal({ concert, startTrackId, onClose }) {
         </div>
 
         {/* LADO DERECHO: SETLIST */}
-        <div className="flex-1 flex flex-col bg-[#f0e6d3] min-w-0 md:max-w-[350px] relative z-20">
+        <div className="flex-1 flex flex-col bg-[#f0e6d3] min-h-0 min-w-0 md:max-w-[350px] relative z-20">
           {isMulti ? (
             <>
               <div className="p-3 md:p-4 bg-[#1c1714] border-b-[3px] border-[#c85a17] flex items-center gap-2 shrink-0">

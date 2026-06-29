@@ -198,10 +198,22 @@ export default function Movies() {
   }, [heroMovies]);
 
   const filteredRecords = useMemo(() => {
-    let r = allRecords;
+    // 1. Deduplicar por título (manteniendo el más reciente, que es el primero en allRecords ya invertido)
+    const uniqueMap = new Map();
+    for (const m of allRecords) {
+      const title = (m.tmdbTitle || m.name || '').trim().toLowerCase();
+      if (title && !uniqueMap.has(title)) {
+        uniqueMap.set(title, m);
+      }
+    }
+    let r = Array.from(uniqueMap.values());
+
+    // 2. Filtrar por búsqueda
     if (searchTerm) {
       r = r.filter(m => (m.tmdbTitle || m.name || '').toLowerCase().includes(searchTerm.toLowerCase()));
     }
+    
+    // 3. Ordenar
     return r.sort((a, b) => {
       if (sortBy === 'ALPHA') {
         return (a.tmdbTitle || a.name || '').toLowerCase().localeCompare((b.tmdbTitle || b.name || '').toLowerCase());

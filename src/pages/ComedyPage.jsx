@@ -15,11 +15,19 @@ export default function ComedyPage() {
     async function fetchComedy() {
       try {
         const response = await pb.collection('comedia').getFullList({ requestKey: null });
-        const formatted = response.map(item => ({
-          ...item,
-          type: 'movie',
-          name: item.tmdbTitle || item.name,
-        }));
+        const formatted = [];
+        const seen = new Set();
+        response.reverse().forEach(item => {
+          const name = (item.tmdbTitle || item.name || '').trim().toLowerCase();
+          if (name && !seen.has(name)) {
+            seen.add(name);
+            formatted.push({
+              ...item,
+              type: 'movie',
+              name: item.tmdbTitle || item.name,
+            });
+          }
+        });
         setItems(formatted);
 
         // Auto-abrir modal si hay ?id= en la URL
