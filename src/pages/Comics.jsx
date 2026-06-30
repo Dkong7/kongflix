@@ -44,12 +44,27 @@ export default function Comics() {
 
   const sagasList = useMemo(() => {
     const grouped = comics.reduce((acc, comic) => {
-      // Group by saga name (extracting text before the issue number if present)
+      // Group by saga name
       let sagaName = comic.titleClean || "Desconocido";
-      const match = sagaName.match(/^(.*?)\s+\d+.*$/);
-      if (match) {
-        sagaName = match[1].trim();
+      
+      // 1. Eliminar firmas como "POR fulano", "BY mengano", y corchetes "[CRG]"
+      sagaName = sagaName.replace(/\s+(por|by)\s+.*$/i, '');
+      sagaName = sagaName.replace(/\s*\[.*?\]\s*/g, ' ');
+      
+      // 2. Extraer el nombre antes de indicadores de volumen (Tomo, Vol, N°, #)
+      const volMatch = sagaName.match(/^(.*?)\s*(?:-|:)?\s*(?:n[°º]\s*|#\s*|tomo\s+|vol\.?\s+|volumen\s+)\d+/i);
+      if (volMatch) {
+        sagaName = volMatch[1];
+      } else {
+        // Fallback: buscar el primer número aislado (que no sea fracción como 1/2)
+        const numMatch = sagaName.match(/^(.*?)\s+(?!\d\/\d)\d+/);
+        if (numMatch) {
+          sagaName = numMatch[1];
+        }
       }
+      
+      // Limpiar guiones o espacios sueltos al final
+      sagaName = sagaName.replace(/[-:]\s*$/, '').trim();
       
       if (!acc[sagaName]) acc[sagaName] = [];
       acc[sagaName].push(comic);
