@@ -77,6 +77,7 @@ export default function Comics() {
       else if (upperName.includes("DRAGON BALL")) sagaName = "Dragon Ball";
       else if (upperName.includes("ONE PIECE")) sagaName = "One Piece";
       else if (upperName.includes("YORHA")) sagaName = "YoRHa";
+      else if (upperName.includes("ZELDA")) sagaName = "The Legend of Zelda";
       
       if (!acc[sagaName]) acc[sagaName] = [];
       acc[sagaName].push(comic);
