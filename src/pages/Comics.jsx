@@ -66,6 +66,17 @@ export default function Comics() {
       
       // Limpiar guiones o espacios sueltos al final
       sagaName = sagaName.replace(/[\-–—:]\s*$/, '').trim();
+
+      // 3. Agrupación Forzada por Franquicia (Master Overrides)
+      // Esto une spin-offs, historias cortas y ediciones Full Color bajo una sola tarjeta
+      const upperName = sagaName.toUpperCase();
+      if (upperName.includes("DEATH NOTE")) sagaName = "Death Note";
+      else if (upperName.includes("CHAINSAW MAN")) sagaName = "Chainsaw Man";
+      else if (upperName.includes("SHAMAN KING")) sagaName = "Shaman King";
+      else if (upperName.includes("SAINT SEIYA") || upperName.includes("THE LOST CANVAS")) sagaName = "Saint Seiya";
+      else if (upperName.includes("DRAGON BALL")) sagaName = "Dragon Ball";
+      else if (upperName.includes("ONE PIECE")) sagaName = "One Piece";
+      else if (upperName.includes("YORHA")) sagaName = "YoRHa";
       
       if (!acc[sagaName]) acc[sagaName] = [];
       acc[sagaName].push(comic);
