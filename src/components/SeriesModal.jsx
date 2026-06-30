@@ -5,8 +5,11 @@ import ShareButton from './ShareButton';
 
 // ─── MOTOR DE REPRODUCCIÓN (IFRAME FIRST) ──────────────
 function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markFinished, onVideoEnded, onNext, onPrev, hasNext, hasPrev, isAutoplay, setIsAutoplay }) {
+  const containerRef = useRef(null);
   const videoRef = useRef(null);
   const lastSavedTime = useRef(initialTime);
+  const hasResumed = useRef(false);
+  const [forceRender, setForceRender] = useState(false);
   const [useIframe, setUseIframe] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
@@ -17,6 +20,7 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
   // Reiniciar estado interno si cambias de episodio rápidamente
   useEffect(() => {
     lastSavedTime.current = initialTime;
+    hasResumed.current = false;
     if (videoRef.current) {
       videoRef.current.currentTime = initialTime;
     }
@@ -90,8 +94,8 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
   };
 
   const toggleFullscreen = () => {
-    if (!videoRef.current) return;
-    const el = videoRef.current.parentElement; // Element to make fullscreen
+    const el = containerRef.current; // Element to make fullscreen
+    if (!el) return;
     if (document.fullscreenElement) {
       document.exitFullscreen();
     } else if (el.requestFullscreen) {
@@ -147,7 +151,7 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
   if (!driveId) return <div className="text-[#c85a17] p-10 font-bold uppercase flex h-full items-center justify-center">NO_DRIVE_ID_FOUND</div>;
 
   return (
-    <div className="w-full h-full flex flex-col bg-black" onClick={closeContextMenu}>
+    <div ref={containerRef} className="w-full h-full flex flex-col bg-black" onClick={closeContextMenu}>
       <div 
         className="relative w-full flex-1 min-h-0 bg-black flex items-center justify-center group"
         onContextMenu={handleContextMenu}
@@ -191,37 +195,24 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
           </div>
         )}
 
-        {!useIframe && (
-          <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 flex justify-between px-2 md:px-6 pointer-events-none z-20">
+        {!useIframe && lastSavedTime.current > 0 && !hasResumed.current && (
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20">
             <button 
-               onClick={(e) => { e.stopPropagation(); if (onPrev) onPrev(); }}
-               disabled={!hasPrev}
-               className={`pointer-events-auto bg-[#1c1714]/70 hover:bg-[#c85a17] text-[#d4b595] hover:text-[#1c1714] rounded-full p-2.5 md:p-4 border border-[#5c4a3d] transition-all shadow-[0_0_15px_rgba(0,0,0,0.5)] flex items-center justify-center backdrop-blur-sm ${hasPrev ? 'opacity-40 hover:opacity-100 hover:scale-110 cursor-pointer' : 'opacity-0'}`}
-               title="Episodio Anterior"
+              onClick={() => {
+                if(videoRef.current) videoRef.current.currentTime = lastSavedTime.current;
+                hasResumed.current = true;
+                setForceRender(prev => !prev);
+              }}
+              className="bg-[#c85a17] hover:bg-[#a6470f] text-[#1c1714] font-black tracking-widest text-[10px] md:text-xs px-4 md:px-6 py-2 md:py-3 rounded-full flex items-center gap-2 shadow-[0_0_15px_rgba(200,90,23,0.5)] transition-all animate-bounce"
             >
-               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-            </button>
-            <button 
-               onClick={(e) => { e.stopPropagation(); if (onNext) onNext(); }}
-               disabled={!hasNext}
-               className={`pointer-events-auto bg-[#1c1714]/70 hover:bg-[#c85a17] text-[#d4b595] hover:text-[#1c1714] rounded-full p-2.5 md:p-4 border border-[#5c4a3d] transition-all shadow-[0_0_15px_rgba(0,0,0,0.5)] flex items-center justify-center backdrop-blur-sm ${hasNext ? 'opacity-40 hover:opacity-100 hover:scale-110 cursor-pointer' : 'opacity-0'}`}
-               title="Siguiente Episodio"
-            >
-               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+              <FaPlay /> CONTINUAR REPRODUCCIÓN
             </button>
           </div>
         )}
 
-        {!useIframe && (
-          <div className="absolute top-4 right-4 z-20 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={togglePiP} className="bg-black/60 hover:bg-[#c85a17] text-white rounded p-2 border border-[#d4b595]/50 transition-colors backdrop-blur-sm cursor-pointer" title="Pantalla Flotante (PiP)">
-               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><rect x="12" y="11" width="7" height="8" rx="1" ry="1"/></svg>
-            </button>
-            <button onClick={toggleFullscreen} className="bg-black/60 hover:bg-[#c85a17] text-white rounded p-2 border border-[#d4b595]/50 transition-colors backdrop-blur-sm cursor-pointer" title="Pantalla Completa">
-               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-            </button>
-          </div>
-        )}
+
+
+
 
         {contextMenu && (
           <div 
@@ -244,43 +235,67 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
         )}
       </div>
 
-      <div className="h-[45px] shrink-0 bg-[#1c1714] border-t-2 border-[#5c4a3d] flex items-center px-4 gap-2 overflow-x-auto scrollbar-hide">
+      <div className="min-h-[45px] py-2 md:py-0 shrink-0 bg-[#1c1714] border-t-2 border-[#5c4a3d] flex flex-wrap md:flex-nowrap items-center px-2 md:px-4 gap-2">
         <button
           onClick={() => setUseIframe(!useIframe)}
-          className={`px-3 py-1.5 text-[9px] font-black tracking-widest uppercase font-mono transition-colors border shrink-0 ${
+          className={`px-2 md:px-3 py-1.5 text-[9px] font-black tracking-widest uppercase font-mono transition-colors border shrink-0 ${
             !useIframe 
             ? 'bg-[#5c4a3d] text-[#1c1714] border-[#d4b595]' 
             : 'bg-transparent text-[#c85a17] border-[#c85a17] hover:bg-[#c85a17] hover:text-[#1c1714]'
           }`}
         >
-          {!useIframe ? '⟵ VOLVER A MODO SEGURO (IFRAME)' : '⚠ PROBAR MOTOR DIRECTO'}
+          {!useIframe ? <><span className="hidden md:inline">⟵ VOLVER A MODO SEGURO (IFRAME)</span><span className="md:inline hidden">⟵ MODO SEGURO</span><span className="md:hidden">IFRAME</span></> : <><span className="hidden md:inline">⚠ PROBAR MOTOR DIRECTO</span><span className="md:hidden">⚠ DIRECTO</span></>}
         </button>
 
         {useIframe && (
           <button 
             onClick={handleMarkAsFinished}
-            className="bg-[#29221c] text-[#d4b595] border border-[#5c4a3d] px-3 py-1.5 text-[9px] font-black tracking-widest uppercase hover:bg-[#d4b595] hover:text-[#1c1714] transition-colors shrink-0 flex items-center gap-2"
+            className="bg-[#29221c] text-[#d4b595] border border-[#5c4a3d] px-2 md:px-3 py-1.5 text-[9px] font-black tracking-widest uppercase hover:bg-[#d4b595] hover:text-[#1c1714] transition-colors shrink-0 flex items-center gap-1 md:gap-2"
           >
-            <FaDatabase /> {isSaving ? 'GUARDANDO...' : 'MARCAR COMO VISTO'}
+            <FaDatabase /> <span className="hidden md:inline">{isSaving ? 'GUARDANDO...' : 'MARCAR COMO VISTO'}</span><span className="md:hidden">{isSaving ? 'OK...' : 'VISTO'}</span>
           </button>
         )}
 
-        <div className="flex-1 min-w-[20px]" />
+        <div className="flex-1 min-w-[5px] md:min-w-[20px]" />
 
-        {/* AUTOPLAY SWITCH JUNTO AL DRIVE LINK */}
-        {!useIframe && (
-          <label className="flex items-center gap-2 cursor-pointer shrink-0 group mr-2 pr-4 border-r border-[#5c4a3d]">
-            <span className="font-mono text-[8px] md:text-[9px] text-[#d4b595] font-bold uppercase tracking-widest group-hover:text-white transition-colors">AutoPlay</span>
-            <div className="relative">
-              <input type="checkbox" className="sr-only" checked={isAutoplay} onChange={(e) => setIsAutoplay(e.target.checked)} />
-              <div className={`block w-8 h-4 rounded-full transition-colors ${isAutoplay ? 'bg-[#c85a17]' : 'bg-[#5c4a3d]'}`}></div>
-              <div className={`dot absolute left-1 top-1 bg-[#1c1714] w-2 h-2 rounded-full transition-transform ${isAutoplay ? 'transform translate-x-4' : ''}`}></div>
+        {/* CONTROLES DE PANTALLA Y AUTOPLAY JUNTO AL DRIVE LINK */}
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3 shrink-0 group mr-1 md:mr-2 pr-1 md:pr-4 border-r border-[#5c4a3d]">
+          
+            {/* Controles Prev / Next */}
+            <div className="flex items-center gap-1 bg-[#1c1714] border border-[#5c4a3d] rounded p-0.5">
+              <button onClick={onPrev} disabled={!hasPrev} className={`p-1.5 transition-colors rounded ${hasPrev ? 'text-[#c85a17] hover:text-white hover:bg-[#5c4a3d]' : 'text-[#5c4a3d] opacity-50 cursor-not-allowed'}`} title="Anterior">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+              </button>
+              <button onClick={onNext} disabled={!hasNext} className={`p-1.5 transition-colors rounded ${hasNext ? 'text-[#c85a17] hover:text-white hover:bg-[#5c4a3d]' : 'text-[#5c4a3d] opacity-50 cursor-not-allowed'}`} title="Siguiente">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+              </button>
             </div>
-          </label>
-        )}
 
-        <a href={viewUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-[#29221c] text-[#d4b595] border border-[#5c4a3d] px-3 py-1.5 text-[9px] font-black tracking-widest uppercase no-underline font-mono whitespace-nowrap hover:bg-[#5c4a3d] transition-colors shrink-0">
-          <FaExternalLinkAlt size={10} /> DRIVE_LINK
+            <div className="w-[1px] h-4 bg-[#5c4a3d] mx-0.5 md:mx-1"></div>
+
+            <div className="flex items-center gap-1">
+              <button onClick={togglePiP} disabled={useIframe} className={`bg-[#29221c] border border-[#5c4a3d] rounded p-1.5 transition-colors ${useIframe ? 'text-[#5c4a3d] opacity-50 cursor-not-allowed' : 'hover:text-[#1c1714] hover:bg-[#c85a17] text-[#d4b595]'}`} title="Pantalla Flotante (PiP)">
+                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><rect x="12" y="11" width="7" height="8" rx="1" ry="1"/></svg>
+              </button>
+              <button onClick={toggleFullscreen} className="bg-[#29221c] border border-[#5c4a3d] rounded hover:text-[#1c1714] hover:bg-[#c85a17] text-[#d4b595] transition-colors p-1.5" title="Pantalla Completa">
+                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+              </button>
+            </div>
+
+            <div className="w-[1px] h-4 bg-[#5c4a3d] mx-0.5 md:mx-1 hidden md:block"></div>
+
+            <label className="flex items-center gap-1 md:gap-2 cursor-pointer group">
+              <span className="font-mono text-[8px] md:text-[9px] text-[#d4b595] font-bold uppercase tracking-widest group-hover:text-white transition-colors">Auto</span>
+              <div className="relative">
+                <input type="checkbox" className="sr-only" checked={isAutoplay} onChange={(e) => setIsAutoplay(e.target.checked)} />
+                <div className={`block w-7 h-4 md:w-8 rounded-full transition-colors ${isAutoplay ? 'bg-[#c85a17]' : 'bg-[#5c4a3d]'}`}></div>
+                <div className={`dot absolute left-1 top-1 bg-[#1c1714] w-2 h-2 rounded-full transition-transform ${isAutoplay ? 'transform translate-x-3 md:translate-x-4' : ''}`}></div>
+              </div>
+            </label>
+        </div>
+
+        <a href={viewUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 md:gap-2 bg-[#29221c] text-[#d4b595] border border-[#5c4a3d] px-2 md:px-3 py-1.5 text-[9px] font-black tracking-widest uppercase no-underline font-mono whitespace-nowrap hover:bg-[#5c4a3d] transition-colors shrink-0">
+          <FaExternalLinkAlt size={10} /> <span className="hidden md:inline">DRIVE_LINK</span><span className="md:hidden">DRIVE</span>
         </a>
       </div>
     </div>
