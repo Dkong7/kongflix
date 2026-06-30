@@ -52,19 +52,20 @@ export default function Comics() {
       sagaName = sagaName.replace(/\s*\[.*?\]\s*/g, ' ');
       
       // 2. Extraer el nombre antes de indicadores de volumen (Tomo, Vol, N°, #)
-      const volMatch = sagaName.match(/^(.*?)\s*(?:-|:)?\s*(?:n[°º]\s*|#\s*|tomo\s+|vol\.?\s+|volumen\s+)\d+/i);
+      // Usamos Unicode escapes para evitar problemas de codificación (\xB0 = °, \xBA = º, \xDF = ß)
+      const volMatch = sagaName.match(/^(.*?)\s*(?:[\-–—:])?\s*(?:n[\xB0\xBA\xDF\W]?\s*|#\s*|tomo\s+|vol\.?\s+|volumen\s+)\d+/i);
       if (volMatch) {
         sagaName = volMatch[1];
       } else {
-        // Fallback: buscar el primer número aislado (que no sea fracción como 1/2)
-        const numMatch = sagaName.match(/^(.*?)\s+(?!\d\/\d)\d+/);
+        // Fallback: buscar el primer número aislado (ignorando guiones y que no sea fracción como 1/2)
+        const numMatch = sagaName.match(/^(.*?)\s*(?:[\-–—:])?\s+(?!\d\/\d)\d+/);
         if (numMatch) {
           sagaName = numMatch[1];
         }
       }
       
       // Limpiar guiones o espacios sueltos al final
-      sagaName = sagaName.replace(/[-:]\s*$/, '').trim();
+      sagaName = sagaName.replace(/[\-–—:]\s*$/, '').trim();
       
       if (!acc[sagaName]) acc[sagaName] = [];
       acc[sagaName].push(comic);
