@@ -22,6 +22,7 @@ export default function MediaCard({ media, onClick }) {
       }
     }
     if (media.coverId) {
+      if (media.coverId.startsWith('http')) return media.coverId;
       return `https://drive.google.com/thumbnail?id=${media.coverId}&sz=w400`;
     }
     return `https://via.placeholder.com/300x450/1c1714/d4b595?text=NO+SIGNAL`;

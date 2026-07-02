@@ -302,9 +302,9 @@ function ProxyPlayer({ media, initialTime = 0, saveProgress, markFinished, onCon
 
 // ─── MOTOR DE REPRODUCCIÓN (PROXY FIRST) ──────────────
 function DrivePlayer({ media, initialTime = 0, saveProgress, markFinished }) {
+  const [isIframeLoaded, setIsIframeLoaded] = useState(false);
   const [useIframe, setUseIframe] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [proxyKey, setProxyKey] = useState(0);
+  const [videoKey, setVideoKey] = useState(0);
   const [contextMenu, setContextMenu] = useState(null);
 
   const driveId = media.driveId;

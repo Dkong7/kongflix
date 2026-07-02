@@ -51,9 +51,9 @@ export default function Comics() {
       sagaName = sagaName.replace(/\s+(por|by)\s+.*$/i, '');
       sagaName = sagaName.replace(/\s*\[.*?\]\s*/g, ' ');
       
-      // 2. Extraer el nombre antes de indicadores de volumen (Tomo, Vol, N°, #)
+      // 2. Extraer el nombre antes de indicadores de volumen (Tomo, Vol, N°, #, Capítulo)
       // Usamos Unicode escapes para evitar problemas de codificación (\xB0 = °, \xBA = º, \xDF = ß)
-      const volMatch = sagaName.match(/^(.*?)\s*(?:[\-–—:])?\s*(?:n[\xB0\xBA\xDF\W]?\s*|#\s*|tomo\s+|vol\.?\s+|volumen\s+)\d+/i);
+      const volMatch = sagaName.match(/^(.*?)\s*(?:[\-–—:])?\s*(?:n[\xB0\xBA\xDF\W]?\s*|#\s*|tomo\s+|vol\.?\s+|volumen\s+|cap(?:[íi]tulos?|s?\.?)?\s+)\d+/i);
       if (volMatch) {
         sagaName = volMatch[1];
       } else {
@@ -65,7 +65,13 @@ export default function Comics() {
       }
       
       // Limpiar guiones o espacios sueltos al final
-      sagaName = sagaName.replace(/[\-–—:]\s*$/, '').trim();
+      sagaName = sagaName.replace(/[\-–—\s]+$/, '');
+      
+      // Regla especial para The Legend of Zelda
+      if (sagaName.toLowerCase().startsWith('the legend of zelda')) {
+        sagaName = 'The Legend of Zelda';
+      }
+      sagaName = sagaName.trim();
 
       // 3. Agrupación Forzada por Franquicia (Master Overrides)
       // Esto une spin-offs, historias cortas y ediciones Full Color bajo una sola tarjeta
@@ -89,24 +95,29 @@ export default function Comics() {
 
       const firstWithCover = issues.find(c => c.coverId) || issues[0];
       const imgUrl = firstWithCover.coverId
-        ? `https://drive.google.com/thumbnail?id=${firstWithCover.coverId}&sz=w600`
+        ? (firstWithCover.coverId.startsWith('http') ? firstWithCover.coverId : `https://drive.google.com/thumbnail?id=${firstWithCover.coverId}&sz=w600`)
         : null;
 
       // Las categorías principales pueden estar en family (Nuevos aportes) o en folderName (Excel viejo)
       const validCategories = ["DC", "MARVEL", "MANGA", "CARTOONS", "GAMES COMICS", "ART BOOK", "+ HISTORIAS", "OTROS COMICS"];
-      let sagaFamily = 'OTROS COMICS';
+      let categoryCounts = {};
       for (const c of issues) {
-        let f = c.family ? c.family.trim().toUpperCase() : "";
-        f = f.replace("Ó", "O").replace("CÓMICS", "COMICS");
-        if (validCategories.includes(f)) {
-          sagaFamily = f;
-          break;
+        let cats = [c.family, c.folderName];
+        for (let rawCat of cats) {
+          let cat = rawCat ? rawCat.trim().toUpperCase().replace("Ó", "O").replace("CÓMICS", "COMICS") : "";
+          if (validCategories.includes(cat)) {
+            categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+            break; // solo 1 por issue
+          }
         }
-        let fn = c.folderName ? c.folderName.trim().toUpperCase() : "";
-        fn = fn.replace("Ó", "O").replace("CÓMICS", "COMICS");
-        if (validCategories.includes(fn)) {
-          sagaFamily = fn;
-          break;
+      }
+      
+      let sagaFamily = 'OTROS COMICS';
+      let maxCount = 0;
+      for (const cat in categoryCounts) {
+        if (categoryCounts[cat] > maxCount) {
+          maxCount = categoryCounts[cat];
+          sagaFamily = cat;
         }
       }
       const latestCreated = Math.max(...issues.map(c => {

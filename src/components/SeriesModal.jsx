@@ -13,6 +13,49 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
   const [useIframe, setUseIframe] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
+  const [subtitleUrl, setSubtitleUrl] = useState(null);
+  const [subtitlesActive, setSubtitlesActive] = useState(true);
+
+  useEffect(() => {
+    if (episode.subtitleId) {
+      // Forzar mime type correcto para subtitulos VTT interceptando el stream de drive y creando un objeto Blob
+      fetch(`https://kongflix-app.duckdns.org/stream/${episode.subtitleId}`)
+        .then(res => {
+            if (!res.ok) throw new Error("Status " + res.status);
+            return res.text();
+        })
+        .then(text => {
+           console.log("Subtitle downloaded, first 100 chars:", text.substring(0, 100));
+           if (!text.includes('WEBVTT') && text.includes('-->')) {
+               console.log("Converting SRT to VTT on the fly...");
+               text = 'WEBVTT\n\n' + text.replace(/,/g, '.');
+           }
+           const vttBlob = new Blob([text], { type: 'text/vtt' });
+           setSubtitleUrl(URL.createObjectURL(vttBlob));
+        })
+        .catch(err => console.error("No se pudieron cargar los subtítulos", err));
+    } else {
+      setSubtitleUrl(null);
+    }
+  }, [episode.subtitleId]);
+
+  // Robustamente forzar el track mode a showing cuando la URL del subtitulo está lista
+  useEffect(() => {
+    if (subtitleUrl && videoRef.current) {
+      const forceMode = () => {
+         const tracks = videoRef.current.textTracks;
+         if (tracks && tracks.length > 0) {
+             for (let i = 0; i < tracks.length; i++) {
+                 tracks[i].mode = subtitlesActive ? 'showing' : 'hidden';
+             }
+         }
+      };
+      forceMode();
+      setTimeout(forceMode, 100);
+      setTimeout(forceMode, 500);
+      setTimeout(forceMode, 1000);
+    }
+  }, [subtitleUrl, subtitlesActive]);
 
   const driveId = episode.driveId;
   const viewUrl   = `https://drive.google.com/file/d/${driveId}/view`;
@@ -114,6 +157,17 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
     }
   };
 
+  const toggleSubtitles = () => {
+    if (!videoRef.current) return;
+    const tracks = videoRef.current.textTracks;
+    if (tracks && tracks.length > 0) {
+      const isShowing = tracks[0].mode === 'showing';
+      tracks[0].mode = isShowing ? 'hidden' : 'showing';
+      setSubtitlesActive(!isShowing);
+      setForceRender(prev => !prev);
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (lastSavedTime.current > 0 && !useIframe) {
@@ -160,9 +214,11 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
           <video
             ref={videoRef}
             src={`https://kongflix-app.duckdns.org/stream/${driveId}`}
+            autoPlay={isAutoplay}
             controls
-            autoPlay
             playsInline
+            crossOrigin="anonymous"
+            controlsList="nodownload"
             preload="auto"
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
@@ -175,8 +231,14 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
             className="w-full h-full outline-none object-contain"
             style={{ filter: 'contrast(1.05)' }} 
           >
-            {episode.subtitleId && (
-              <track kind="subtitles" src={`https://kongflix-app.duckdns.org/stream/${episode.subtitleId}`} srcLang="es" label="Español" default />
+            {subtitleUrl && (
+              <track 
+                 kind="subtitles" 
+                 src={subtitleUrl} 
+                 srcLang="es" 
+                 label="Español" 
+                 default 
+              />
             )}
           </video>
         ) : (
@@ -194,23 +256,6 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
             <span className="w-2 h-2 bg-[#c85a17] rounded-full animate-pulse"></span> DIRECT_LINK
           </div>
         )}
-
-        {!useIframe && lastSavedTime.current > 0 && !hasResumed.current && (
-          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20">
-            <button 
-              onClick={() => {
-                if(videoRef.current) videoRef.current.currentTime = lastSavedTime.current;
-                hasResumed.current = true;
-                setForceRender(prev => !prev);
-              }}
-              className="bg-[#c85a17] hover:bg-[#a6470f] text-[#1c1714] font-black tracking-widest text-[10px] md:text-xs px-4 md:px-6 py-2 md:py-3 rounded-full flex items-center gap-2 shadow-[0_0_15px_rgba(200,90,23,0.5)] transition-all animate-bounce"
-            >
-              <FaPlay /> CONTINUAR REPRODUCCIÓN
-            </button>
-          </div>
-        )}
-
-
 
 
 
@@ -259,7 +304,7 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
         <div className="flex-1 min-w-[5px] md:min-w-[20px]" />
 
         {/* CONTROLES DE PANTALLA Y AUTOPLAY JUNTO AL DRIVE LINK */}
-        <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3 shrink-0 group mr-1 md:mr-2 pr-1 md:pr-4 border-r border-[#5c4a3d]">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3 shrink-0 mr-1 md:mr-2 pr-1 md:pr-4 border-r border-[#5c4a3d]">
           
             {/* Controles Prev / Next */}
             <div className="flex items-center gap-1 bg-[#1c1714] border border-[#5c4a3d] rounded p-0.5">
@@ -274,6 +319,9 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
             <div className="w-[1px] h-4 bg-[#5c4a3d] mx-0.5 md:mx-1"></div>
 
             <div className="flex items-center gap-1">
+              <button onClick={toggleSubtitles} disabled={useIframe} className={`border border-[#5c4a3d] rounded p-1 transition-colors flex items-center justify-center w-7 h-7 ${useIframe ? 'text-[#5c4a3d] opacity-50 cursor-not-allowed bg-[#29221c]' : (subtitlesActive ? 'bg-[#c85a17] text-white border-[#c85a17]' : 'bg-[#29221c] text-[#d4b595] hover:bg-[#5c4a3d]')}`} title="Subtítulos (CC)">
+                 <span className="text-[10px] font-black font-sans leading-none pt-[1px]">CC</span>
+              </button>
               <button onClick={togglePiP} disabled={useIframe} className={`bg-[#29221c] border border-[#5c4a3d] rounded p-1.5 transition-colors ${useIframe ? 'text-[#5c4a3d] opacity-50 cursor-not-allowed' : 'hover:text-[#1c1714] hover:bg-[#c85a17] text-[#d4b595]'}`} title="Pantalla Flotante (PiP)">
                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><rect x="12" y="11" width="7" height="8" rx="1" ry="1"/></svg>
               </button>
