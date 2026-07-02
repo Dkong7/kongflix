@@ -184,7 +184,7 @@ function DrivePlayer({ episode, seriesName, initialTime = 0, saveProgress, markF
         artist: 'Kongflix',
         album: seriesName,
         artwork: [
-          { src: episode.poster || episode.coverId || 'https://via.placeholder.com/512x512', sizes: '512x512', type: 'image/jpeg' }
+          { src: episode.poster || episode.coverId || 'https://image.tmdb.org/t/p/w500/placeholder.jpg', sizes: '512x512', type: 'image/jpeg' }
         ]
       });
 

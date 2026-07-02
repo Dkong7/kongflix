@@ -10,22 +10,23 @@ export default function MediaCard({ media, onClick }) {
   const [imgError, setImgError] = useState(false);
 
   // ── URL de portada ──────────────────────────────────────────
+  const NO_SIGNAL_SVG = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='450' viewBox='0 0 300 450'><rect width='300' height='450' fill='%231c1714'/><text x='50%25' y='48%25' font-family='monospace' font-size='12' fill='%23d4b595' text-anchor='middle' dominant-baseline='middle'>NO SIGNAL</text><text x='50%25' y='54%25' font-family='monospace' font-size='9' fill='%235c4a3d' text-anchor='middle' dominant-baseline='middle'>KONGFLIX</text></svg>`;
   const buildPoster = () => {
     if (imgError) {
-      return `https://via.placeholder.com/300x450/1c1714/d4b595?text=NO+DATA`;
+      return NO_SIGNAL_SVG;
     }
     if (media.poster && media.poster.trim() !== "") {
-      if (media.poster.startsWith("http")) {
+      if (media.poster.startsWith("http") || media.poster.startsWith("data:")) {
         return media.poster.replace("http://", "https://");
       } else {
         return `https://drive.google.com/thumbnail?id=${media.poster}&sz=w400`;
       }
     }
     if (media.coverId) {
-      if (media.coverId.startsWith('http')) return media.coverId;
+      if (media.coverId.startsWith('http') || media.coverId.startsWith('data:')) return media.coverId;
       return `https://drive.google.com/thumbnail?id=${media.coverId}&sz=w400`;
     }
-    return `https://via.placeholder.com/300x450/1c1714/d4b595?text=NO+SIGNAL`;
+    return NO_SIGNAL_SVG;
   };
 
   return (
